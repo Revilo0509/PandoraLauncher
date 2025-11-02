@@ -85,8 +85,6 @@ pub struct BackendState {
 
 impl BackendState {
     async fn start(mut self) {
-        todo!();
-        
         let _ = std::fs::create_dir_all(&self.directories.instances_dir);
         
         self.watch_filesystem(&self.directories.instances_dir.clone(), WatchTarget::InstancesDir).await;
