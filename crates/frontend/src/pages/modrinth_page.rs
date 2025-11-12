@@ -3,14 +3,7 @@ use std::{ops::Range, sync::Arc, time::Duration};
 use bridge::install::ContentType;
 use gpui::{prelude::*, *};
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Selectable, StyledExt, WindowExt,
-    button::{Button, ButtonGroup, ButtonVariants},
-    h_flex,
-    input::{Input, InputEvent, InputState},
-    notification::NotificationType,
-    scroll::{Scrollbar, ScrollbarState},
-    skeleton::Skeleton,
-    v_flex,
+    button::{Button, ButtonGroup, ButtonVariants}, h_flex, input::{Input, InputEvent, InputState}, notification::{Notification, NotificationType}, popover::Popover, scroll::{Scrollbar, ScrollbarState}, skeleton::Skeleton, v_flex, ActiveTheme, Icon, IconName, Selectable, StyledExt, WindowExt
 };
 use schema::modrinth::{
     ModrinthError, ModrinthHit, ModrinthRequest, ModrinthResult, ModrinthSearchRequest, ModrinthSideRequirement,
@@ -188,6 +181,208 @@ impl ModrinthSearchPage {
             Err(error) => todo!(),
         }
     }
+    
+    fn render_items(&mut self, visible_range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Div> {
+        let theme = cx.theme();
+        let mut should_load_more = false;
+        let items = visible_range
+            .map(|index| {
+                let Some(hit) = self.hits.get(index) else {
+                    should_load_more = true;
+                    return div()
+                        .pl_3()
+                        .pt_3()
+                        .child(Skeleton::new().w_full().h(px(28.0 * 4.0)).rounded_lg());
+                };
+
+                let image = if let Some(icon_url) = &hit.icon_url
+                    && !icon_url.is_empty()
+                {
+                    gpui::img(SharedUri::from(icon_url))
+                        .with_fallback(|| Skeleton::new().rounded_lg().size_16().into_any_element())
+                } else {
+                    gpui::img(ImageSource::Resource(Resource::Embedded(
+                        "images/default_mod.png".into(),
+                    )))
+                };
+
+                let name = hit
+                    .title
+                    .as_ref()
+                    .map(Arc::clone)
+                    .map(SharedString::new)
+                    .unwrap_or(SharedString::new_static("Unnamed"));
+                let author = format!("by {}", hit.author.clone());
+                let description = hit
+                    .description
+                    .as_ref()
+                    .map(Arc::clone)
+                    .map(SharedString::new)
+                    .unwrap_or(SharedString::new_static("No Description"));
+
+                const GRAY: Hsla = Hsla { h: 0.0, s: 0.0, l: 0.5, a: 1.0 };
+                let author_line = div().text_color(GRAY).text_sm().pb_px().child(author);
+
+                let client_side = hit.client_side.unwrap_or(ModrinthSideRequirement::Unknown);
+                let server_side = hit.server_side.unwrap_or(ModrinthSideRequirement::Unknown);
+
+                let (env_icon, env_name) = match (client_side, server_side) {
+                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Required) => {
+                        (Icon::empty().path("icons/globe.svg"), ts!("client_and_server"))
+                    },
+                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Unsupported) => {
+                        (Icon::empty().path("icons/computer.svg"), ts!("client_only"))
+                    },
+                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Optional) => {
+                        (Icon::empty().path("icons/computer.svg"), ts!("client_only_server_optional"))
+                    },
+                    (ModrinthSideRequirement::Unsupported, ModrinthSideRequirement::Required) => {
+                        (Icon::empty().path("icons/router.svg"), ts!("server_only"))
+                    },
+                    (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Required) => {
+                        (Icon::empty().path("icons/router.svg"), ts!("server_only_client_optional"))
+                    },
+                    (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Optional) => {
+                        (Icon::empty().path("icons/globe.svg"), ts!("client_or_server"))
+                    },
+                    _ => (Icon::empty().path("icons/cpu.svg"), ts!("unknown_environment")),
+                };
+
+                let environment = h_flex().gap_1().font_bold().child(env_icon).child(env_name);
+
+                let categories = hit.display_categories.iter().flat_map(|categories| {
+                    categories.iter().map(|category| {
+                        let icon = icon_for(category).unwrap_or("icons/diamond.svg");
+                        let icon = Icon::empty().path(icon);
+                        let translated_category = ts!(category.as_str());
+                        h_flex().gap_0p5().child(icon).child(translated_category)
+                    })
+                });
+
+                let download_icon = Icon::empty().path("icons/download.svg");
+                let downloads = h_flex()
+                    .gap_0p5()
+                    .child(download_icon.clone())
+                    .child(format_downloads(hit.downloads));
+
+                let buttons = ButtonGroup::new(("buttons", index))
+                    .layout(Axis::Vertical)
+                    .child(
+                        Button::new(("install", index))
+                            .label("Install")
+                            .icon(download_icon)
+                            .success()
+                            .on_click({
+                                let data = self.data.clone();
+                                let name = name.clone();
+                                let project_id = hit.project_id.clone();
+                                let content_type = match hit.project_type {
+                                    schema::modrinth::ModrinthProjectType::Mod => {
+                                        Some(ContentType::Mod)
+                                    },
+                                    schema::modrinth::ModrinthProjectType::ModPack => {
+                                        Some(ContentType::Modpack)
+                                    },
+                                    schema::modrinth::ModrinthProjectType::ResourcePack => {
+                                        Some(ContentType::Resourcepack)
+                                    },
+                                    schema::modrinth::ModrinthProjectType::Shader => {
+                                        Some(ContentType::Shader)
+                                    },
+                                    _ => None,
+                                };
+
+                                move |_, window, cx| {
+                                    if let Some(content_type) = content_type {
+                                        let install = InstallDialogLoading::new(
+                                            name.as_str(),
+                                            project_id.clone(),
+                                            content_type,
+                                            &data,
+                                            window,
+                                            cx,
+                                        );
+                                        install.show(window, cx);
+                                    } else {
+                                        window.push_notification(
+                                            (
+                                                NotificationType::Error,
+                                                "Don't know how to handle this type of content",
+                                            ),
+                                            cx,
+                                        );
+                                    }
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new(("open", index))
+                            .label("Open Page")
+                            .icon(IconName::Globe)
+                            .info()
+                            .on_click({
+                                let project_type = hit.project_type.as_str();
+                                let project_id = hit.project_id.clone();
+                                move |_, _, cx| {
+                                    cx.open_url(&format!(
+                                        "https://modrinth.com/{}/{}",
+                                        project_type, project_id
+                                    ));
+                                }
+                            }),
+                    );
+
+                let item = h_flex()
+                    .rounded_lg()
+                    .px_4()
+                    .py_2()
+                    .gap_4()
+                    .h_32()
+                    .bg(theme.background)
+                    .border_color(theme.border)
+                    .border_1()
+                    .size_full()
+                    .child(image.rounded_lg().size_16().min_w_16().min_h_16())
+                    .child(
+                        v_flex()
+                            .h(px(104.0))
+                            .flex_grow()
+                            .gap_1()
+                            .overflow_hidden()
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .items_end()
+                                    .line_clamp(1)
+                                    .text_lg()
+                                    .child(name)
+                                    .child(author_line),
+                            )
+                            .child(
+                                div()
+                                    .flex_auto()
+                                    .line_height(px(20.0))
+                                    .line_clamp(2)
+                                    .child(description),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2p5()
+                                    .children(std::iter::once(environment).chain(categories)),
+                            ),
+                    )
+                    .child(v_flex().gap_2().child(downloads).child(buttons));
+
+                div().pl_3().pt_3().child(item)
+            })
+            .collect();
+
+        if should_load_more {
+            self.load_more(cx);
+        }
+
+        items
+    }
 }
 
 impl Render for ModrinthSearchPage {
@@ -205,212 +400,7 @@ impl Render for ModrinthSearchPage {
                 uniform_list(
                     "uniform-list",
                     item_count,
-                    cx.processor(move |this, visible_range: Range<usize>, _, cx| {
-                        let theme = cx.theme();
-                        let mut should_load_more = false;
-                        let items = visible_range
-                            .map(|index| {
-                                let Some(hit) = this.hits.get(index) else {
-                                    should_load_more = true;
-                                    return div()
-                                        .pl_3()
-                                        .pt_3()
-                                        .child(Skeleton::new().w_full().h(px(28.0 * 4.0)).rounded_lg());
-                                };
-
-                                let image = if let Some(icon_url) = &hit.icon_url
-                                    && !icon_url.is_empty()
-                                {
-                                    gpui::img(SharedUri::from(icon_url))
-                                        .with_fallback(|| Skeleton::new().rounded_lg().size_16().into_any_element())
-                                } else {
-                                    gpui::img(ImageSource::Resource(Resource::Embedded(
-                                        "images/default_mod.png".into(),
-                                    )))
-                                };
-
-                                let name = hit
-                                    .title
-                                    .as_ref()
-                                    .map(Arc::clone)
-                                    .map(SharedString::new)
-                                    .unwrap_or(SharedString::new_static("Unnamed"));
-                                let author = format!("by {}", hit.author.clone());
-                                let description = hit
-                                    .description
-                                    .as_ref()
-                                    .map(Arc::clone)
-                                    .map(SharedString::new)
-                                    .unwrap_or(SharedString::new_static("No Description"));
-
-                                const GRAY: Hsla = Hsla {
-                                    h: 0.0,
-                                    s: 0.0,
-                                    l: 0.5,
-                                    a: 1.0,
-                                };
-                                let author_line = div().text_color(GRAY).text_sm().pb_px().child(author);
-
-                                let client_side = hit.client_side.unwrap_or(ModrinthSideRequirement::Unknown);
-                                let server_side = hit.server_side.unwrap_or(ModrinthSideRequirement::Unknown);
-
-                                let (env_icon, env_name) = match (client_side, server_side) {
-                                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Required) => {
-                                        (Icon::empty().path("icons/globe.svg"), ts!("client_and_server"))
-                                    },
-                                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Unsupported) => {
-                                        (Icon::empty().path("icons/computer.svg"), ts!("client_only"))
-                                    },
-                                    (ModrinthSideRequirement::Required, ModrinthSideRequirement::Optional) => {
-                                        (Icon::empty().path("icons/computer.svg"), ts!("client_only_server_optional"))
-                                    },
-                                    (ModrinthSideRequirement::Unsupported, ModrinthSideRequirement::Required) => {
-                                        (Icon::empty().path("icons/router.svg"), ts!("server_only"))
-                                    },
-                                    (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Required) => {
-                                        (Icon::empty().path("icons/router.svg"), ts!("server_only_client_optional"))
-                                    },
-                                    (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Optional) => {
-                                        (Icon::empty().path("icons/globe.svg"), ts!("client_or_server"))
-                                    },
-                                    _ => (Icon::empty().path("icons/cpu.svg"), ts!("unknown_environment")),
-                                };
-
-                                let environment = h_flex().gap_1().font_bold().child(env_icon).child(env_name);
-
-                                let categories = hit.display_categories.iter().flat_map(|categories| {
-                                    categories.iter().map(|category| {
-                                        let icon = icon_for(category).unwrap_or("icons/diamond.svg");
-                                        let icon = Icon::empty().path(icon);
-                                        let translated_category = ts!(category.as_str());
-                                        h_flex().gap_0p5().child(icon).child(translated_category)
-                                    })
-                                });
-
-                                let download_icon = Icon::empty().path("icons/download.svg");
-                                let downloads = h_flex()
-                                    .gap_0p5()
-                                    .child(download_icon.clone())
-                                    .child(format_downloads(hit.downloads));
-
-                                let buttons = ButtonGroup::new(("buttons", index))
-                                    .layout(Axis::Vertical)
-                                    .child(
-                                        Button::new(("install", index))
-                                            .label("Install")
-                                            .icon(download_icon)
-                                            .success()
-                                            .on_click({
-                                                let data = this.data.clone();
-                                                let name = name.clone();
-                                                let project_id = hit.project_id.clone();
-                                                let content_type = match hit.project_type {
-                                                    schema::modrinth::ModrinthProjectType::Mod => {
-                                                        Some(ContentType::Mod)
-                                                    },
-                                                    schema::modrinth::ModrinthProjectType::ModPack => {
-                                                        Some(ContentType::Modpack)
-                                                    },
-                                                    schema::modrinth::ModrinthProjectType::ResourcePack => {
-                                                        Some(ContentType::Resourcepack)
-                                                    },
-                                                    schema::modrinth::ModrinthProjectType::Shader => {
-                                                        Some(ContentType::Shader)
-                                                    },
-                                                    _ => None,
-                                                };
-
-                                                move |_, window, cx| {
-                                                    if let Some(content_type) = content_type {
-                                                        let install = InstallDialogLoading::new(
-                                                            name.as_str(),
-                                                            project_id.clone(),
-                                                            content_type,
-                                                            &data,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                        install.show(window, cx);
-                                                    } else {
-                                                        window.push_notification(
-                                                            (
-                                                                NotificationType::Error,
-                                                                "Don't know how to handle this type of content",
-                                                            ),
-                                                            cx,
-                                                        );
-                                                    }
-                                                }
-                                            }),
-                                    )
-                                    .child(
-                                        Button::new(("open", index))
-                                            .label("Open Page")
-                                            .icon(IconName::Globe)
-                                            .info()
-                                            .on_click({
-                                                let project_type = hit.project_type.as_str();
-                                                let project_id = hit.project_id.clone();
-                                                move |_, _, cx| {
-                                                    cx.open_url(&format!(
-                                                        "https://modrinth.com/{}/{}",
-                                                        project_type, project_id
-                                                    ));
-                                                }
-                                            }),
-                                    );
-
-                                let item = h_flex()
-                                    .rounded_lg()
-                                    .px_4()
-                                    .py_2()
-                                    .gap_4()
-                                    .h_32()
-                                    .bg(theme.background)
-                                    .border_color(theme.border)
-                                    .border_1()
-                                    .size_full()
-                                    .child(image.rounded_lg().size_16().min_w_16().min_h_16())
-                                    .child(
-                                        v_flex()
-                                            .h(px(104.0))
-                                            .flex_grow()
-                                            .gap_1()
-                                            .overflow_hidden()
-                                            .child(
-                                                h_flex()
-                                                    .gap_1()
-                                                    .items_end()
-                                                    .line_clamp(1)
-                                                    .text_lg()
-                                                    .child(name)
-                                                    .child(author_line),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_auto()
-                                                    .line_height(px(20.0))
-                                                    .line_clamp(2)
-                                                    .child(description),
-                                            )
-                                            .child(
-                                                h_flex()
-                                                    .gap_2p5()
-                                                    .children(std::iter::once(environment).chain(categories)),
-                                            ),
-                                    )
-                                    .child(v_flex().gap_2().child(downloads).child(buttons));
-
-                                div().pl_3().pt_3().child(item)
-                            })
-                            .collect();
-
-                        if should_load_more {
-                            this.load_more(cx);
-                        }
-
-                        items
-                    }),
+                    cx.processor(Self::render_items),
                 )
                 .size_full()
                 .track_scroll(scroll_handle.clone()),

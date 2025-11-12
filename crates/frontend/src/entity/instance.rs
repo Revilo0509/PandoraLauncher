@@ -5,6 +5,7 @@ use bridge::{
     message::AtomicBridgeDataLoadState,
 };
 use gpui::{prelude::*, *};
+use gpui_component::select::SelectItem;
 use indexmap::IndexMap;
 use schema::loader::Loader;
 
@@ -153,6 +154,24 @@ pub struct InstanceEntry {
     pub servers: Entity<Arc<[InstanceServerSummary]>>,
     pub mods_state: Arc<AtomicBridgeDataLoadState>,
     pub mods: Entity<Arc<[InstanceModSummary]>>,
+}
+
+impl SelectItem for InstanceEntry {
+    type Value = Self;
+
+    fn title(&self) -> SharedString {
+        self.name.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self
+    }
+}
+
+impl PartialEq for InstanceEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl InstanceEntry {

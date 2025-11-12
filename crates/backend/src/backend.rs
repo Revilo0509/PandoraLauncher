@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    io::Cursor,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -216,11 +216,12 @@ impl BackendState {
         let Ok(mut instance) = instance else {
             if let Some(existing) = self.instance_by_path.get(path)
                 && let Some(existing_instance) = self.instances.get(existing.index)
-                    && existing_instance.id == *existing {
-                        let instance = self.instances.remove(existing.index);
-                        self.send.send(MessageToFrontend::InstanceRemoved { id: instance.id}).await;
-                        show_errors = true;
-                    }
+                && existing_instance.id == *existing
+            {
+                let instance = self.instances.remove(existing.index);
+                self.send.send(MessageToFrontend::InstanceRemoved { id: instance.id}).await;
+                show_errors = true;
+            }
 
             if show_errors {
                 let error = instance.unwrap_err();
@@ -507,21 +508,38 @@ impl BackendState {
             }
         }
     }
+    
+    pub fn write_safe(&mut self, path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let content = content.as_ref();
+        
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        
+        let mut temp = path.to_path_buf();
+        temp.add_extension("new");
+        
+        let mut temp_file = std::fs::File::create(&temp)?;
+        
+        temp_file.write_all(content)?;
+        temp_file.flush()?;
+        temp_file.sync_all()?;
+        
+        drop(temp_file);
+        
+        std::fs::rename(temp, path)?;
+        
+        Ok(())
+    }
 
     pub async fn write_account_info(&mut self) {
-        // Check that accounts_json can be loaded before backing it up
-        if let Ok(file) = std::fs::File::open(&self.directories.accounts_json)
-            && serde_json::from_reader::<_, BackendAccountInfo>(file).is_ok()
-        {
-            let _ = std::fs::rename(&self.directories.accounts_json, &self.directories.accounts_json_backup);
-        }
-
-        let Ok(file) = std::fs::File::create(&self.directories.accounts_json) else {
+        let Ok(data) = serde_json::to_vec(&self.account_info) else {
+            self.send.send_error("Failed to serialize account info").await;
             return;
         };
-
-        if serde_json::to_writer(file, &self.account_info).is_err() {
-            self.send.send_error("Failed to save accounts.json").await;
+        if self.write_safe(self.directories.accounts_json.clone(), data).is_err() {
+            self.send.send_error("Failed to write to accounts.json").await;
         }
     }
 
@@ -568,26 +586,18 @@ impl BackendState {
                 head_png.clone()
             };
 
-            handle
-                .send(MessageToBackend::UpdateAccountHeadPng {
-                    uuid,
-                    head_png,
-                    head_png_32x,
-                })
-                .await;
+            handle.send(MessageToBackend::UpdateAccountHeadPng {
+                uuid,
+                head_png,
+                head_png_32x,
+            }).await;
         });
     }
 }
 
 fn load_accounts_json(directories: &LauncherDirectories) -> BackendAccountInfo {
-    if let Ok(file) = std::fs::File::open(&directories.accounts_json)
-        && let Ok(account_info) = serde_json::from_reader(file)
-    {
-        return account_info;
-    }
-
-    if let Ok(file) = std::fs::File::open(&directories.accounts_json_backup)
-        && let Ok(account_info) = serde_json::from_reader(file)
+    if let Ok(data) = std::fs::read(&directories.accounts_json)
+        && let Ok(account_info) = serde_json::from_slice(&data)
     {
         return account_info;
     }

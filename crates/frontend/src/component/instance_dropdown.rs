@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bridge::instance::InstanceID;
 use gpui::{prelude::*, *};
 use gpui_component::{
     IndexPath,
@@ -29,15 +30,23 @@ impl InstanceDropdown {
     }
 }
 
+#[derive(Clone)]
+struct InstanceItem {
+    title: SharedString,
+    id: InstanceID,
+}
+
+
+
 impl SelectDelegate for InstanceDropdown {
-    type Item = SharedString;
+    type Item = InstanceEntry;
 
     fn items_count(&self, _section: usize) -> usize {
         self.search.len()
     }
 
     fn item(&self, ix: gpui_component::IndexPath) -> Option<&Self::Item> {
-        Some(&self.search.get(ix.row)?.name)
+        self.search.get(ix.row)
     }
 
     fn position<V>(&self, value: &V) -> Option<gpui_component::IndexPath>
@@ -47,13 +56,13 @@ impl SelectDelegate for InstanceDropdown {
     {
         if let Some(searched_iter) = self.search.iter() {
             for (ix, item) in searched_iter.enumerate() {
-                if item.name.value() == value {
+                if item.value() == value {
                     return Some(IndexPath::default().row(ix));
                 }
             }
         } else {
             for (ix, item) in self.instances.iter().enumerate() {
-                if item.name.value() == value {
+                if item.value() == value {
                     return Some(IndexPath::default().row(ix));
                 }
             }

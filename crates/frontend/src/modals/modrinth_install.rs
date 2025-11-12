@@ -189,26 +189,33 @@ impl InstallDialogLoading {
                         None
                     };
 
-                    window.close_dialog(cx);
-                    let install_dialog = InstallDialog {
-                        name: self.name.clone(),
-                        project_versions: valid_project_versions.into(),
-                        data: self.data.clone(),
-                        content_type: self.content_type,
-                        version_matrix,
-                        instances,
-                        unsupported_instances,
-                        target: None,
-                        fixed_minecraft_version: None,
-                        minecraft_version_select_state: None,
-                        fixed_loader: None,
-                        loader_select_state: None,
-                        last_selected_minecraft_version: None,
-                        skip_loader_check_for_mod_version: false,
-                        mod_version_select_state: None,
-                        last_selected_loader: None,
-                    };
-                    install_dialog.show(window, cx);
+                    let name = self.name.clone();
+                    let data = self.data.clone();
+                    let content_type = self.content_type;
+                    cx.spawn_in(window, async move |_, cx| {
+                        _ = cx.update(move |window, cx| {
+                            window.close_dialog(cx);
+                            let install_dialog = InstallDialog {
+                                name,
+                                project_versions: valid_project_versions.into(),
+                                data,
+                                content_type,
+                                version_matrix,
+                                instances,
+                                unsupported_instances,
+                                target: None,
+                                fixed_minecraft_version: None,
+                                minecraft_version_select_state: None,
+                                fixed_loader: None,
+                                loader_select_state: None,
+                                last_selected_minecraft_version: None,
+                                skip_loader_check_for_mod_version: false,
+                                mod_version_select_state: None,
+                                last_selected_loader: None,
+                            };
+                            install_dialog.show(window, cx);
+                        });
+                    }).detach();
 
                     modal.child(h_flex().gap_2().child("Loading mod versions...").child(Spinner::new()))
                 },
@@ -257,10 +264,7 @@ impl InstallDialog {
                 .text_center()
                 .when_some(self.instances.as_ref(), |content, instances| {
                     let read_instances = instances.read(cx);
-                    let selected_instance: Option<InstanceEntry> = read_instances
-                        .selected_index(cx)
-                        .and_then(|v| read_instances.delegate(cx).get(v.row))
-                        .cloned();
+                    let selected_instance: Option<InstanceEntry> = read_instances.selected_value().cloned();
 
                     let button_and_dropdown = h_flex()
                         .gap_2()

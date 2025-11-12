@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-component"
-version = "0.4.0-preview1"
+version = "0.4.0-preview2"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2807,7 +2807,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-macros"
-version = "0.4.0-preview1"
+version = "0.4.0-preview2"
 dependencies = [
  "proc-macro2",
  "quote",

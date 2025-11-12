@@ -49,6 +49,10 @@ impl BackendState {
                     return Err(ContentInstallError::InvalidHash(content_file.sha1.clone()));
                 };
 
+                let hash_folder = self.directories.content_library_dir.join(&content_file.sha1[..2]);
+                let _ = tokio::fs::create_dir_all(&hash_folder).await;
+                let path = hash_folder.join(&*content_file.sha1);
+
                 let title = format!("Downloading {}", content_file.filename);
                 let tracker = ProgressTracker::new(title.into(), self.send.clone());
                 modal_action.trackers.push(tracker.clone());
@@ -56,11 +60,21 @@ impl BackendState {
                 tracker.set_total(content_file.size);
                 tracker.notify().await;
 
+                let valid_hash_on_disk = {
+                    let path = path.clone();
+                    tokio::task::spawn_blocking(move || {
+                        crate::check_sha1_hash(&path, expected_hash).unwrap_or(false)
+                    }).await.unwrap()
+                };
+
+                if valid_hash_on_disk {
+                    tracker.set_count(content_file.size);
+                    tracker.notify().await;
+                    return Ok((path, content_file.clone()));
+                }
+
                 let response = self.http_client.get(&*content_file.url).send().await?;
 
-                let hash_folder = self.directories.content_library_dir.join(&content_file.sha1[..2]);
-                let _ = tokio::fs::create_dir_all(&hash_folder).await;
-                let path = hash_folder.join(&*content_file.sha1);
                 let mut file = tokio::fs::File::create(&path).await?;
 
                 use futures::StreamExt;

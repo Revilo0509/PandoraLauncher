@@ -43,10 +43,6 @@ impl LauncherRoot {
 
 impl Render for LauncherRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
-
         if let Some(message) = &*self.panic_message.read().unwrap() {
             return v_flex().size_full().bg(gpui::blue()).child(message.clone());
         }
@@ -58,9 +54,6 @@ impl Render for LauncherRoot {
             .size_full()
             .font_family("Inter 24pt")
             .child(self.ui.clone())
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
     }
 }
 
@@ -97,6 +90,5 @@ pub fn start_install(
         modal_action: modal_action.clone(),
     });
 
-    let title: SharedString = "Installing...".to_string().into();
-    modals::generic::show_modal(window, cx, title, "Error installing content".into(), modal_action);
+    modals::generic::show_notification(window, cx, "Error installing content".into(), modal_action);
 }

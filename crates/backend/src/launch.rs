@@ -208,9 +208,9 @@ impl Launcher {
         }
 
         let launch_context = LaunchContext {
-            java_path,
-            natives_dir,
-            game_dir,
+            java_path: java_path.into(),
+            natives_dir: natives_dir.into(),
+            game_dir: game_dir.into(),
             assets_root: self.directories.assets_root_dir.clone(),
             temp_dir: self.directories.temp_dir.clone(),
             assets_index_name,
@@ -467,13 +467,11 @@ impl Launcher {
     ) -> Result<String, LoadAssetObjectsError> {
         let asset_index = format!("{}", version_info.assets);
 
-        let Ok(assets_index) = meta.fetch(&AssetsIndexMetadata {
+        let assets_index = meta.fetch(&AssetsIndexMetadata {
             url: version_info.asset_index.url,
             cache: self.directories.assets_index_dir.join(format!("{}.json", &asset_index)).into(),
             hash: version_info.asset_index.sha1,
-        }).await else {
-            todo!("Can't get assets index");
-        };
+        }).await?;
 
         let initial_title = Arc::from("Verifying integrity of game assets");
         let assets_tracker = ProgressTracker::new(initial_title, self.sender.clone());
@@ -481,9 +479,9 @@ impl Launcher {
         assets_tracker.notify().await;
 
         let assets_dir = if assets_index.map_to_resources == Some(true) {
-            game_dir.join("resources")
+            game_dir.join("resources").into()
         } else if assets_index.r#virtual == Some(true) {
-            self.directories.assets_root_dir.join("virtual").join("legacy")
+            self.directories.assets_root_dir.join("virtual").join("legacy").into()
         } else {
             self.directories.assets_objects_dir.clone()
         };
@@ -921,12 +919,14 @@ pub enum LoadAssetObjectsError {
     WrongResponseSize,
     #[error("Downloaded file had the wrong hash")]
     WrongHash,
+    #[error("Failed to load metadata:\n{0}")]
+    MetaLoadError(#[from] MetaLoadError),
 }
 
 async fn do_asset_objects_load(
     http_client: &reqwest::Client,
     assets_index: Arc<AssetsIndex>,
-    assets_objects_dir: PathBuf,
+    assets_objects_dir: Arc<Path>,
     assets_tracker: &ProgressTracker,
 ) -> Result<(), LoadAssetObjectsError> {
     // Limit max concurrent connections to 8 to avoid ratelimiting issues
@@ -1042,7 +1042,7 @@ pub enum LoadLibrariesError {
 async fn do_libraries_load(
     http_client: &reqwest::Client,
     artifacts: &[GameLibraryArtifact],
-    libraries_dir: PathBuf,
+    libraries_dir: Arc<Path>,
     libraries_tracker: &ProgressTracker,
 ) -> Result<Vec<(Ustr, PathBuf)>, LoadLibrariesError> {
     // Limit max concurrent connections to 8 to avoid ratelimiting issues
@@ -1367,11 +1367,11 @@ impl LaunchRuleContext {
 }
 
 pub struct LaunchContext {
-    pub java_path: PathBuf,
-    pub natives_dir: PathBuf,
-    pub game_dir: PathBuf,
-    pub assets_root: PathBuf,
-    pub temp_dir: PathBuf,
+    pub java_path: Arc<Path>,
+    pub natives_dir: Arc<Path>,
+    pub game_dir: Arc<Path>,
+    pub assets_root: Arc<Path>,
+    pub temp_dir: Arc<Path>,
     pub assets_index_name: String,
     pub classpath: OsString,
     pub log_configuration: Option<OsString>,
@@ -1381,7 +1381,7 @@ pub struct LaunchContext {
 
 impl LaunchContext {
     pub fn launch(mut self, version_info: &MinecraftVersion) -> std::process::Child {
-        let mut command = std::process::Command::new(&self.java_path);
+        let mut command = std::process::Command::new(&*self.java_path);
 
         command.current_dir(&self.game_dir);
         command.stdin(Stdio::piped());

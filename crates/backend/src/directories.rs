@@ -1,26 +1,25 @@
-use std::path::PathBuf;
+use std::{path::{Path, PathBuf}, sync::Arc};
 
 pub struct LauncherDirectories {
-    pub instances_dir: PathBuf,
+    pub instances_dir: Arc<Path>,
 
-    pub metadata_dir: PathBuf,
+    pub metadata_dir: Arc<Path>,
 
-    pub assets_root_dir: PathBuf,
-    pub assets_index_dir: PathBuf,
-    pub assets_objects_dir: PathBuf,
-    pub virtual_legacy_assets_dir: PathBuf,
+    pub assets_root_dir: Arc<Path>,
+    pub assets_index_dir: Arc<Path>,
+    pub assets_objects_dir: Arc<Path>,
+    pub virtual_legacy_assets_dir: Arc<Path>,
 
-    pub libraries_dir: PathBuf,
-    pub log_configs_dir: PathBuf,
-    pub runtime_base_dir: PathBuf,
+    pub libraries_dir: Arc<Path>,
+    pub log_configs_dir: Arc<Path>,
+    pub runtime_base_dir: Arc<Path>,
 
-    pub content_library_dir: PathBuf,
+    pub content_library_dir: Arc<Path>,
 
-    pub temp_dir: PathBuf,
-    pub temp_natives_base_dir: PathBuf,
+    pub temp_dir: Arc<Path>,
+    pub temp_natives_base_dir: Arc<Path>,
 
-    pub accounts_json: PathBuf,
-    pub accounts_json_backup: PathBuf,
+    pub accounts_json: Arc<Path>,
 }
 
 impl LauncherDirectories {
@@ -46,29 +45,27 @@ impl LauncherDirectories {
         let temp_natives_base_dir = temp_dir.join("natives");
 
         let accounts_json = launcher_dir.join("accounts.json");
-        let accounts_json_backup = launcher_dir.join("accounts.json.old");
 
         Self {
-            instances_dir,
+            instances_dir: instances_dir.into(),
 
-            metadata_dir,
+            metadata_dir: metadata_dir.into(),
 
-            assets_root_dir,
-            assets_index_dir,
-            assets_objects_dir,
-            virtual_legacy_assets_dir,
+            assets_root_dir: assets_root_dir.into(),
+            assets_index_dir: assets_index_dir.into(),
+            assets_objects_dir: assets_objects_dir.into(),
+            virtual_legacy_assets_dir: virtual_legacy_assets_dir.into(),
 
-            libraries_dir,
-            log_configs_dir,
-            runtime_base_dir,
+            libraries_dir: libraries_dir.into(),
+            log_configs_dir: log_configs_dir.into(),
+            runtime_base_dir: runtime_base_dir.into(),
 
-            content_library_dir,
+            content_library_dir: content_library_dir.into(),
 
-            temp_dir,
-            temp_natives_base_dir,
+            temp_dir: temp_dir.into(),
+            temp_natives_base_dir: temp_natives_base_dir.into(),
 
-            accounts_json,
-            accounts_json_backup,
+            accounts_json: accounts_json.into(),
         }
     }
 }

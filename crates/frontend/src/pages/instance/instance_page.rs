@@ -117,11 +117,11 @@ impl Render for InstancePage {
                     .prefix(div().w_4())
                     .selected_index(selected_index)
                     .underline()
-                    .child(Tab::new("Quickplay"))
-                    .child(Tab::new("Logs"))
-                    .child(Tab::new("Mods"))
-                    .child(Tab::new("Resource Packs"))
-                    .child(Tab::new("Worlds"))
+                    .child(Tab::new().label("Quickplay"))
+                    .child(Tab::new().label("Logs"))
+                    .child(Tab::new().label("Mods"))
+                    .child(Tab::new().label("Resource Packs"))
+                    .child(Tab::new().label("Worlds"))
                     .on_click(cx.listener(|page, index, window, cx| {
                         let page_type = match *index {
                             0 => InstanceSubpageType::Quickplay,

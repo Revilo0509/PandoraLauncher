@@ -36,7 +36,7 @@ pub struct MetadataManagerStates {
 pub struct MetadataManager {
     states: MetadataManagerStates,
 
-    metadata_cache: PathBuf,
+    metadata_cache: Arc<Path>,
     version_manifest_cache: Arc<Path>,
     mojang_java_runtimes_cache: Arc<Path>,
     fabric_loader_manifest_cache: Arc<Path>,
@@ -321,7 +321,7 @@ pub enum MetaLoadState<T> {
 }
 
 impl MetadataManager {
-    pub fn new(http_client: reqwest::Client, runtime: Handle, directory: PathBuf, sender: FrontendHandle) -> Self {
+    pub fn new(http_client: reqwest::Client, runtime: Handle, directory: Arc<Path>, sender: FrontendHandle) -> Self {
         Self {
             states: MetadataManagerStates::default(),
 

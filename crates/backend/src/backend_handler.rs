@@ -365,7 +365,7 @@ impl BackendState {
                 cache: self.directories.assets_index_dir.join(format!("{}.json", &asset_index)).into(),
                 hash: version_info.asset_index.sha1,
             }).await else {
-                todo!("Can't get assets index {:?}", version_info.asset_index.url);
+                panic!("Can't get assets index {:?}", version_info.asset_index.url);
             };
 
             if let Some(arguments) = &version_info.arguments {
