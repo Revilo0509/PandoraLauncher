@@ -91,6 +91,23 @@ pub enum InstanceLoadError {
 }
 
 impl Instance {
+    pub fn on_root_renamed(&mut self, path: &Path) {
+        self.name = path.file_name().unwrap().to_string_lossy().into_owned().into();
+        self.root_path = path.into();
+
+        let mut dot_minecraft_path = path.to_owned();
+        dot_minecraft_path.push(".minecraft");
+
+        let saves_path = dot_minecraft_path.join("saves");
+        let mods_path = dot_minecraft_path.join("mods");
+        let server_dat_path = dot_minecraft_path.join("servers.dat");
+
+        self.dot_minecraft_path = dot_minecraft_path.into();
+        self.server_dat_path = server_dat_path.into();
+        self.saves_path = saves_path.into();
+        self.mods_path = mods_path.into();
+    }
+
     pub fn as_basic_info(&self) -> BasicInstanceInfo {
         BasicInstanceInfo {
             name: self.name,

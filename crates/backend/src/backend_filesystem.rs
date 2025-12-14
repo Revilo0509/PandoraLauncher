@@ -232,7 +232,7 @@ impl BackendState {
                     && from.parent() == to.parent()
                 {
                     let old_name = instance.name;
-                    instance.name = to.file_name().unwrap().to_string_lossy().into_owned().into();
+                    instance.on_root_renamed(to);
 
                     self.send.send_info(format!("Instance '{}' renamed to '{}'", old_name, instance.name));
                     self.send.send(instance.create_modify_message());
