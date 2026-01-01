@@ -81,7 +81,10 @@ pub(crate) fn write_safe(path: &Path, content: &[u8]) -> std::io::Result<()> {
 
     drop(temp_file);
 
-    std::fs::rename(temp, path)?;
+    if let Err(err) = std::fs::rename(&temp, path) {
+        _ = std::fs::remove_file(&temp);
+        return Err(err);
+    }
 
     Ok(())
 }
