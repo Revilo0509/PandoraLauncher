@@ -5,11 +5,12 @@ use gpui::{prelude::*, *};
 use gpui_component::{
     breadcrumb::{Breadcrumb, BreadcrumbItem}, button::{Button, ButtonVariants}, h_flex, resizable::{h_resizable, resizable_panel, ResizableState}, sidebar::{Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem}, v_flex, ActiveTheme as _, Icon, IconName, WindowExt
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     entity::{
-        instance::{InstanceAddedEvent, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}, DataEntities
-    }, modals, pages::{instance::instance_page::{InstancePage, InstanceSubpageType}, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, syncing_page::SyncingPage}, png_render_cache, root
+        instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}, DataEntities
+    }, interface_config::InterfaceConfig, modals, pages::{instance::instance_page::{InstancePage, InstanceSubpageType}, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, syncing_page::SyncingPage}, png_render_cache, root
 };
 
 pub struct LauncherUI {
@@ -21,6 +22,74 @@ pub struct LauncherUI {
     _instance_modified_subscription: Subscription,
     _instance_removed_subscription: Subscription,
     _instance_moved_to_top_subscription: Subscription,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum PageType {
+    Instances,
+    Syncing,
+    Modrinth {
+        installing_for: Option<InstanceID>,
+    },
+    InstancePage(InstanceID, InstanceSubpageType),
+}
+
+impl PageType {
+    fn to_serialized(&self, data: &DataEntities, cx: &App) -> SerializedPageType {
+        match self {
+            PageType::Instances => SerializedPageType::Instances,
+            PageType::Syncing => SerializedPageType::Syncing,
+            PageType::Modrinth { installing_for } => {
+                if let Some(installing_for) = installing_for {
+                    if let Some(name) = InstanceEntries::find_name_by_id(&data.instances, *installing_for, cx) {
+                        return SerializedPageType::Modrinth { installing_for: Some(name) };
+                    }
+                }
+                SerializedPageType::Modrinth { installing_for: None}
+            },
+            PageType::InstancePage(id, _) => {
+                if let Some(name) = InstanceEntries::find_name_by_id(&data.instances, *id, cx) {
+                    SerializedPageType::InstancePage(name)
+                } else {
+                    SerializedPageType::Instances
+                }
+            },
+        }
+    }
+
+    fn from_serialized(serialized: &SerializedPageType, data: &DataEntities, cx: &App) -> Self {
+        match serialized {
+            SerializedPageType::Instances => PageType::Instances,
+            SerializedPageType::Syncing => PageType::Syncing,
+            SerializedPageType::Modrinth { installing_for } => {
+                if let Some(installing_for) = installing_for {
+                    if let Some(id) = InstanceEntries::find_id_by_name(&data.instances, installing_for, cx) {
+                        return PageType::Modrinth { installing_for: Some(id) };
+                    }
+                }
+                PageType::Modrinth { installing_for: None}
+            },
+            SerializedPageType::InstancePage(name) => {
+                if let Some(id) = InstanceEntries::find_id_by_name(&data.instances, name, cx) {
+                    PageType::InstancePage(id, InstanceSubpageType::Quickplay)
+                } else {
+                    PageType::Instances
+                }
+            },
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SerializedPageType {
+    #[default]
+    Instances,
+    Syncing,
+    Modrinth {
+        installing_for: Option<SharedString>,
+    },
+    InstancePage(SharedString),
 }
 
 #[derive(Clone)]
@@ -56,7 +125,6 @@ impl LauncherPage {
 
 impl LauncherUI {
     pub fn new(data: &DataEntities, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let instance_page = cx.new(|cx| InstancesPage::new(data, window, cx));
         let sidebar_state = cx.new(|_| ResizableState::default());
 
         let recent_instances = data
@@ -104,9 +172,11 @@ impl LauncherUI {
                 cx.notify();
             });
 
+        let page_type = PageType::from_serialized(&InterfaceConfig::get(cx).main_page, data, cx);
+
         Self {
             data: data.clone(),
-            page: LauncherPage::Instances(instance_page),
+            page: Self::create_page(&data, page_type, None, window, cx),
             sidebar_state,
             recent_instances,
             _instance_added_subscription,
@@ -116,61 +186,43 @@ impl LauncherUI {
         }
     }
 
-    pub fn switch_page(&mut self, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) {
-        let data = &self.data;
+    fn create_page(data: &DataEntities, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) -> LauncherPage {
         match page {
             PageType::Instances => {
-                if let LauncherPage::Instances(..) = self.page {
-                    return;
-                }
-                self.page = LauncherPage::Instances(cx.new(|cx| InstancesPage::new(data, window, cx)));
-                cx.notify();
+                LauncherPage::Instances(cx.new(|cx| InstancesPage::new(data, window, cx)))
             },
             PageType::Syncing => {
-                if let LauncherPage::Syncing(..) = self.page {
-                    return;
-                }
-                self.page = LauncherPage::Syncing(cx.new(|cx| SyncingPage::new(data, window, cx)));
-                cx.notify();
+                LauncherPage::Syncing(cx.new(|cx| SyncingPage::new(data, window, cx)))
             },
             PageType::Modrinth { installing_for } => {
-                if let LauncherPage::Modrinth { installing_for: current_installing_for, .. } = self.page && current_installing_for == installing_for {
-                    return;
-                }
                 let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl()));
                 let page = cx.new(|cx| {
                     ModrinthSearchPage::new(data, installing_for, breadcrumb, window, cx)
                 });
-                self.page = LauncherPage::Modrinth {
+                LauncherPage::Modrinth {
                     installing_for,
                     page,
-                };
-                cx.notify();
+                }
             },
             PageType::InstancePage(id, subpage) => {
-                if let LauncherPage::InstancePage(current_id, ..) = self.page && current_id == id {
-                    return;
-                }
                 let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl().child(BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
                     root::switch_page(PageType::Instances, None, window, cx);
                 }))));
-                self.page = LauncherPage::InstancePage(id, subpage, cx.new(|cx| {
+                LauncherPage::InstancePage(id, subpage, cx.new(|cx| {
                     InstancePage::new(id, subpage, data, breadcrumb, window, cx)
-                }));
-                cx.notify();
+                }))
             },
         }
     }
-}
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum PageType {
-    Instances,
-    Syncing,
-    Modrinth {
-        installing_for: Option<InstanceID>,
-    },
-    InstancePage(InstanceID, InstanceSubpageType),
+    pub fn switch_page(&mut self, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page.page_type() == page {
+            return;
+        }
+        InterfaceConfig::get_mut(cx).main_page = page.to_serialized(&self.data, cx);
+        self.page = Self::create_page(&self.data, page, breadcrumb, window, cx);
+        cx.notify();
+    }
 }
 
 impl Render for LauncherUI {

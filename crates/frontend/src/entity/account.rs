@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bridge::account::Account;
-use gpui::{AppContext, Entity};
+use gpui::{App, AppContext, Entity};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -12,11 +12,11 @@ pub struct AccountEntries {
 }
 
 impl AccountEntries {
-    pub fn set<C: AppContext>(
+    pub fn set(
         entity: &Entity<Self>,
         accounts: Arc<[Account]>,
         selected_account: Option<Uuid>,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
             entries.selected_account =

@@ -7,6 +7,7 @@ use gpui::{prelude::*, *};
 use gpui_component::{
     breadcrumb::Breadcrumb, button::{Button, ButtonVariants}, h_flex, tab::{Tab, TabBar}, Icon, IconName
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     entity::{instance::InstanceEntry, DataEntities},
@@ -116,7 +117,8 @@ impl Render for InstancePage {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum InstanceSubpageType {
     Quickplay,
     Logs,

@@ -76,12 +76,12 @@ impl FrontendMetadata {
         })
     }
 
-    pub fn set<C: AppContext>(
+    pub fn set(
         entity: &Entity<Self>,
         request: MetadataRequest,
         result: Result<MetadataResult, Arc<str>>,
         keep_alive: Option<KeepAliveHandle>,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |this, cx| {
             this.data.get(&request).unwrap().update(cx, |value, cx| {

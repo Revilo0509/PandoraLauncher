@@ -79,6 +79,14 @@ impl FrontendReceiver {
         }
         Some(message)
     }
+
+    pub fn try_recv(&mut self) -> Option<MessageToFrontend> {
+        let (message, serial) = self.receiver.try_recv().ok()?;
+        if let Some(serial) = serial {
+            self.processed_serial.set(serial);
+        }
+        Some(message)
+    }
 }
 
 #[derive(Clone, Debug)]

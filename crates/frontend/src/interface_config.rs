@@ -4,6 +4,8 @@ use gpui::{App, SharedString, Task};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
+use crate::ui::SerializedPageType;
+
 struct InterfaceConfigHolder {
     config: InterfaceConfig,
     write_task: Option<Task<()>>,
@@ -12,9 +14,12 @@ struct InterfaceConfigHolder {
 
 impl gpui::Global for InterfaceConfigHolder {}
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct InterfaceConfig {
+    #[serde(default, deserialize_with = "try_deserialize")]
     pub active_theme: SharedString,
+    #[serde(default, deserialize_with = "try_deserialize")]
+    pub main_page: SerializedPageType,
 }
 
 impl InterfaceConfig {
@@ -62,7 +67,7 @@ impl InterfaceConfigHolder {
     }
 }
 
-pub(crate) fn try_read_json<T: Default + for <'de> Deserialize<'de>>(path: &Path) -> T {
+pub(crate) fn try_read_json<T: std::fmt::Debug + Default + for <'de> Deserialize<'de>>(path: &Path) -> T {
     let Ok(data) = std::fs::read(path) else {
         return T::default();
     };
@@ -92,4 +97,12 @@ pub(crate) fn write_safe(path: &Path, content: &[u8]) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn try_deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Deserialize<'de> + Default + std::fmt::Debug,
+    D: serde::Deserializer<'de>,
+{
+    Ok(T::deserialize(serde_json::Value::deserialize(deserializer)?).unwrap_or_default())
 }

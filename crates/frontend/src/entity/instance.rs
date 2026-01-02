@@ -14,7 +14,7 @@ pub struct InstanceEntries {
 }
 
 impl InstanceEntries {
-    pub fn add<C: AppContext>(
+    pub fn add(
         entity: &Entity<Self>,
         id: InstanceID,
         name: SharedString,
@@ -23,7 +23,7 @@ impl InstanceEntries {
         worlds_state: Arc<AtomicBridgeDataLoadState>,
         servers_state: Arc<AtomicBridgeDataLoadState>,
         mods_state: Arc<AtomicBridgeDataLoadState>,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
             let instance = InstanceEntry {
@@ -45,7 +45,23 @@ impl InstanceEntries {
         });
     }
 
-    pub fn remove<C: AppContext>(entity: &Entity<Self>, id: InstanceID, cx: &mut C) {
+    pub fn find_id_by_name(entity: &Entity<Self>, name: &SharedString, cx: &App) -> Option<InstanceID> {
+        for (id, entry) in &entity.read(cx).entries {
+            if &entry.read(cx).name == name {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    pub fn find_name_by_id(entity: &Entity<Self>, id: InstanceID, cx: &App) -> Option<SharedString> {
+        if let Some(entry) = entity.read(cx).entries.get(&id) {
+            return Some(entry.read(cx).name.clone())
+        }
+        None
+    }
+
+    pub fn remove(entity: &Entity<Self>, id: InstanceID, cx: &mut App) {
         entity.update(cx, |entries, cx| {
             if let Some(_) = entries.entries.shift_remove(&id) {
                 cx.emit(InstanceRemovedEvent { id });
@@ -53,14 +69,14 @@ impl InstanceEntries {
         });
     }
 
-    pub fn modify<C: AppContext>(
+    pub fn modify(
         entity: &Entity<Self>,
         id: InstanceID,
         name: SharedString,
         version: SharedString,
         loader: Loader,
         status: InstanceStatus,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
             if let Some(instance) = entries.entries.get_mut(&id) {
@@ -79,11 +95,11 @@ impl InstanceEntries {
         });
     }
 
-    pub fn set_worlds<C: AppContext>(
+    pub fn set_worlds(
         entity: &Entity<Self>,
         id: InstanceID,
         worlds: Arc<[InstanceWorldSummary]>,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
             if let Some(instance) = entries.entries.get_mut(&id) {
@@ -97,11 +113,11 @@ impl InstanceEntries {
         });
     }
 
-    pub fn set_servers<C: AppContext>(
+    pub fn set_servers(
         entity: &Entity<Self>,
         id: InstanceID,
         servers: Arc<[InstanceServerSummary]>,
-        cx: &mut C,
+        cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
             if let Some(instance) = entries.entries.get_mut(&id) {
@@ -115,7 +131,7 @@ impl InstanceEntries {
         });
     }
 
-    pub fn set_mods<C: AppContext>(entity: &Entity<Self>, id: InstanceID, mods: Arc<[InstanceModSummary]>, cx: &mut C) {
+    pub fn set_mods(entity: &Entity<Self>, id: InstanceID, mods: Arc<[InstanceModSummary]>, cx: &mut App) {
         entity.update(cx, |entries, cx| {
             if let Some(instance) = entries.entries.get_mut(&id) {
                 instance.update(cx, |instance, cx| {
@@ -128,7 +144,7 @@ impl InstanceEntries {
         });
     }
 
-    pub fn move_to_top<C: AppContext>(entity: &Entity<Self>, id: InstanceID, cx: &mut C) {
+    pub fn move_to_top(entity: &Entity<Self>, id: InstanceID, cx: &mut App) {
         entity.update(cx, |entries, cx| {
             if let Some(index) = entries.entries.get_index_of(&id) {
                 entries.entries.move_index(index, entries.entries.len() - 1);

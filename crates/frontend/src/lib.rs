@@ -20,7 +20,7 @@ use tokio::sync::mpsc::Receiver;
 use crate::{
     entity::{
         account::AccountEntries, instance::InstanceEntries, metadata::FrontendMetadata, DataEntities
-    }, game_output::{GameOutput, GameOutputRoot}, interface_config::InterfaceConfig, root::{LauncherRoot, LauncherRootGlobal}
+    }, game_output::{GameOutput, GameOutputRoot}, interface_config::InterfaceConfig, processor::Processor, root::{LauncherRoot, LauncherRootGlobal}
 };
 
 pub mod component;
@@ -30,6 +30,7 @@ pub mod modals;
 pub mod pages;
 pub mod interface_config;
 pub mod png_render_cache;
+pub mod processor;
 pub mod root;
 pub mod ui;
 
@@ -150,143 +151,19 @@ pub fn start(
                     theme_folder: theme_folder.into(),
                 };
 
-                {
-                    let main_window = window.window_handle();
+                let mut processor = Processor::new(data.clone(), window.window_handle());
 
-                    let data = data.clone();
-                    let mut game_output_windows = HashMap::new();
-                    let window_handle = window.window_handle();
-                    cx.spawn(async move |cx| {
-                        while let Some(message) = recv.recv().await {
-                            match message {
-                                MessageToFrontend::AccountsUpdated {
-                                    accounts,
-                                    selected_account,
-                                } => {
-                                    AccountEntries::set(&data.accounts, accounts, selected_account, cx);
-                                },
-                                MessageToFrontend::InstanceAdded {
-                                    id,
-                                    name,
-                                    version,
-                                    loader,
-                                    worlds_state,
-                                    servers_state,
-                                    mods_state,
-                                } => {
-                                    InstanceEntries::add(
-                                        &data.instances,
-                                        id,
-                                        name.as_str().into(),
-                                        version.as_str().into(),
-                                        loader,
-                                        worlds_state,
-                                        servers_state,
-                                        mods_state,
-                                        cx,
-                                    );
-                                },
-                                MessageToFrontend::InstanceRemoved { id } => {
-                                    InstanceEntries::remove(&data.instances, id, cx);
-                                },
-                                MessageToFrontend::InstanceModified {
-                                    id,
-                                    name,
-                                    version,
-                                    loader,
-                                    status,
-                                } => {
-                                    InstanceEntries::modify(
-                                        &data.instances,
-                                        id,
-                                        name.as_str().into(),
-                                        version.as_str().into(),
-                                        loader,
-                                        status,
-                                        cx,
-                                    );
-                                },
-                                MessageToFrontend::InstanceWorldsUpdated { id, worlds } => {
-                                    InstanceEntries::set_worlds(&data.instances, id, worlds, cx);
-                                },
-                                MessageToFrontend::InstanceServersUpdated { id, servers } => {
-                                    InstanceEntries::set_servers(&data.instances, id, servers, cx);
-                                },
-                                MessageToFrontend::InstanceModsUpdated { id, mods } => {
-                                    InstanceEntries::set_mods(&data.instances, id, mods, cx);
-                                },
-                                MessageToFrontend::AddNotification { notification_type, message } => {
-                                    window_handle.update(cx, |_, window, cx| {
-                                        let notification_type = match notification_type {
-                                            BridgeNotificationType::Success => NotificationType::Success,
-                                            BridgeNotificationType::Info => NotificationType::Info,
-                                            BridgeNotificationType::Error => NotificationType::Error,
-                                            BridgeNotificationType::Warning => NotificationType::Warning,
-                                        };
-                                        let mut notification: Notification = (notification_type, SharedString::from(message)).into();
-                                        if let NotificationType::Error = notification_type {
-                                            notification = notification.autohide(false);
-                                        }
-                                        window.push_notification(notification, cx);
-                                    }).unwrap();
-                                },
-                                MessageToFrontend::Refresh => {
-                                    _ = main_window.update(cx, |_, window, _| {
-                                        window.refresh();
-                                    });
-                                },
-                                MessageToFrontend::CloseModal => {
-                                    _ = main_window.update(cx, |_, window, cx| {
-                                        window.close_all_dialogs(cx);
-                                    });
-                                },
-                                MessageToFrontend::CreateGameOutputWindow { id, keep_alive } => {
-                                    let options = WindowOptions {
-                                        app_id: Some("PandoraLauncher".into()),
-                                        window_min_size: Some(size(px(360.0), px(240.0))),
-                                        titlebar: Some(TitlebarOptions {
-                                            title: Some(SharedString::new_static("Minecraft Game Output")),
-                                            ..Default::default()
-                                        }),
-                                        window_decorations: Some(WindowDecorations::Server),
-                                        ..Default::default()
-                                    };
-                                    _ = cx.open_window(options, |window, cx| {
-                                        let game_output = cx.new(|_| GameOutput::default());
-                                        let game_output_root = cx
-                                            .new(|cx| GameOutputRoot::new(keep_alive, game_output.clone(), window, cx));
-                                        window.activate_window();
-                                        let window_handle = window.window_handle().downcast::<Root>().unwrap();
-                                        game_output_windows.insert(id, (window_handle, game_output.clone()));
-                                        cx.new(|cx| Root::new(game_output_root.into(), window, cx))
-                                    });
-                                },
-                                MessageToFrontend::AddGameOutput {
-                                    id,
-                                    time,
-                                    thread,
-                                    level,
-                                    text,
-                                } => {
-                                    if let Some((window, game_output)) = game_output_windows.get(&id) {
-                                        _ = window.update(cx, |_, window, cx| {
-                                            game_output.update(cx, |game_output, _| {
-                                                game_output.add(time, thread, level, text);
-                                            });
-                                            window.refresh();
-                                        });
-                                    }
-                                },
-                                MessageToFrontend::MoveInstanceToTop { id } => {
-                                    InstanceEntries::move_to_top(&data.instances, id, cx);
-                                },
-                                MessageToFrontend::MetadataResult { request, result, keep_alive_handle } => {
-                                    FrontendMetadata::set(&data.metadata, request, result, keep_alive_handle, cx);
-                                },
-                            }
-                        }
-                    }).detach();
+                while let Some(message) = recv.try_recv() {
+                    processor.process(message, cx);
                 }
+
+                cx.spawn(async move |cx| {
+                    while let Some(message) = recv.recv().await {
+                        _ = cx.update(|cx| {
+                            processor.process(message, cx);
+                        });
+                    }
+                }).detach();
 
                 window.set_window_title("Pandora");
 

@@ -74,18 +74,17 @@ pub fn start(launcher_dir: PathBuf, send: FrontendHandle, self_handle: BackendHa
         watching: HashMap::new(),
     };
 
-
     // Create initial directories
     let _ = std::fs::create_dir_all(&directories.instances_dir);
     state_file_watching.try_watch_filesystem(&directories.root_launcher_dir, WatchTarget::RootDir);
 
     // Load accounts
-    let mut account_info = Persistent::load(directories.accounts_json.clone());
+    let account_info = Persistent::load(directories.accounts_json.clone());
 
     // Load config
     let config = Persistent::load(directories.config_json.clone());
 
-    let state = BackendState {
+    let mut state = BackendState {
         self_handle,
         send: send.clone(),
         http_client,
@@ -101,6 +100,11 @@ pub fn start(launcher_dir: PathBuf, send: FrontendHandle, self_handle: BackendHa
         secret_storage: Arc::new(OnceCell::new()),
         head_cache: Default::default(),
     };
+
+    runtime.block_on(async {
+        state.send.send(state.account_info.write().get().create_update_message());
+        state.load_all_instances().await;
+    });
 
     runtime.spawn(state.start(recv, watcher_rx));
 
@@ -164,10 +168,6 @@ impl BackendState {
     async fn start(mut self, recv: BackendReceiver, watcher_rx: Receiver<notify_debouncer_full::DebounceEventResult>) {
         // Pre-fetch version manifest
         self.meta.load(&MinecraftVersionManifestMetadataItem).await;
-
-        self.send.send(self.account_info.write().get().create_update_message());
-
-        self.load_all_instances().await;
 
         self.handle(recv, watcher_rx).await;
     }
