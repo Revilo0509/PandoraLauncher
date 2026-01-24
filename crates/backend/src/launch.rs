@@ -91,7 +91,11 @@ impl Launcher {
         launch_tracker: &ProgressTracker,
         modal_action: &ModalAction,
     ) -> Result<Child, LaunchError> {
+        log::info!("Launching {:?}", dot_minecraft_path);
+
         launch_tracker.set_total(6);
+
+        log::debug!("Creating launch version");
 
         let (version_info, add_vanilla_jar) = tokio::select! {
             result = self.create_launch_version(http_client, &modal_action.trackers, launch_tracker, &instance_info) => result?,
@@ -143,6 +147,8 @@ impl Launcher {
         let load_libraries_future =
             self.load_libraries(http_client, &artifacts, &modal_action.trackers, launch_tracker);
         let load_log_configuration = self.load_log_configuration(http_client, version_info.logging.as_ref());
+
+        log::debug!("Loading java, assets, libraries and log configuration");
 
         let joined = futures::future::try_join4(
             mojang_java_binary_future.map_err(LaunchError::from),
@@ -230,6 +236,7 @@ impl Launcher {
             return Err(LaunchError::CancelledByUser);
         }
 
+        log::info!("Launching game process");
         let child = launch_context.launch(&version_info)?;
 
         launch_tracker.add_count(1);
@@ -631,7 +638,7 @@ impl Launcher {
                     let target = target.to_path(&self.directories.libraries_dir);
                     data.insert(key, target.into_os_string());
                 } else {
-                    eprintln!("Artifact generated invalid path: {}", artifact_path);
+                    log::error!("Artifact generated invalid path: {}", artifact_path);
                 }
             } else if value.starts_with('\'') && value.ends_with('\'') {
                 data.insert(key, OsString::from(&value[1..value.len()-1]));
@@ -648,7 +655,7 @@ impl Launcher {
                     crate::write_safe(&target, &file.bytes()?)?;
                     data.insert(key, target.into_os_string());
                 } else {
-                    eprintln!("Unable to extract {}", file_name);
+                    log::error!("Unable to extract {}", file_name);
                 }
             }
         }
@@ -691,7 +698,7 @@ impl Launcher {
             let relative_jar_path = jar.artifact_path();
 
             let Some(safe_jar_path) = SafePath::new(&relative_jar_path) else {
-                eprintln!("Unable to run processor, invalid path: {}", relative_jar_path);
+                log::error!("Unable to run processor, invalid path: {}", relative_jar_path);
                 processor_tracker.add_count(1);
                 processor_tracker.notify();
                 continue;
@@ -711,7 +718,7 @@ impl Launcher {
             drop(jar_file);
 
             let Ok(manifest_str) = str::from_utf8(&manifest_bytes) else {
-                eprintln!("Unable to run processor, MANIFEST.MF is not utf8 encoded");
+                log::error!("Unable to run processor, MANIFEST.MF is not utf8 encoded");
                 processor_tracker.add_count(1);
                 processor_tracker.notify();
                 continue;
@@ -720,7 +727,7 @@ impl Launcher {
             let manifest_map = crate::java_manifest::parse_java_manifest(manifest_str);
 
             let Some(main_class) = manifest_map.get("Main-Class") else {
-                eprintln!("Unable to run processor, can't find Main-Class in MANIFEST.MF");
+                log::error!("Unable to run processor, can't find Main-Class in MANIFEST.MF");
                 processor_tracker.add_count(1);
                 processor_tracker.notify();
                 continue;
@@ -749,7 +756,7 @@ impl Launcher {
                         let target = target.to_path(&self.directories.libraries_dir);
                         Cow::Owned(target.into_os_string())
                     } else {
-                        eprintln!("Artifact generated invalid path: {}", artifact_path);
+                        log::error!("Artifact generated invalid path: {}", artifact_path);
                         continue;
                     }
                 } else if &**arg == "{ROOT}/libraries/" {
@@ -1074,7 +1081,7 @@ impl Launcher {
         };
         let id = client.file.id.as_str();
         if !path_is_normal(id) {
-            eprintln!("Log configuration has path: {}", id);
+            log::error!("Log configuration has invalid path: {}", id);
             return None;
         }
         let path = self.directories.log_configs_dir.join(id);
@@ -1083,7 +1090,7 @@ impl Launcher {
 
         let mut expected_hash = [0u8; 20];
         let Ok(_) = hex::decode_to_slice(client.file.sha1.as_str(), &mut expected_hash) else {
-            eprintln!("Log configuration has invalid sha1: {}", client.file.sha1.as_str());
+            log::error!("Log configuration has invalid sha1: {}", client.file.sha1.as_str());
             return None;
         };
 
@@ -1099,17 +1106,17 @@ impl Launcher {
         }
 
         let Ok(response) = http_client.get(client.file.url.as_str()).send().await else {
-            eprintln!("Failed to make request to download log configuration");
+            log::error!("Failed to make request to download log configuration");
             return None;
         };
         let Ok(bytes) = response.bytes().await else {
-            eprintln!("Failed to download log configuration");
+            log::error!("Failed to download log configuration");
             return None;
         };
         let bytes = Arc::new(bytes);
 
         if bytes.len() != client.file.size as usize {
-            eprintln!("Rejecting log configuration because invalid size");
+            log::error!("Rejecting log configuration because invalid size");
             return None;
         }
 
@@ -1126,12 +1133,12 @@ impl Launcher {
         };
 
         if !correct_hash {
-            eprintln!("Log configuration has incorrect hash");
+            log::error!("Log configuration has incorrect hash");
             return None;
         }
 
         let Ok(_) = tokio::fs::write(path.clone(), &*bytes).await else {
-            eprintln!("Failed to write log configuration to disk");
+            log::error!("Failed to write log configuration to disk");
             return None;
         };
 

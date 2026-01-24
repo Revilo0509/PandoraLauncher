@@ -45,6 +45,8 @@ impl BackendState {
                         continue;
                     };
 
+                    log::trace!("Filesystem event: {:?}", next_event);
+
                     if let Some(last_event) = last_event.take() {
                         let last_path = last_event.change_or_remove_path();
                         let new_path = next_event.change_or_remove_path();
@@ -63,7 +65,7 @@ impl BackendState {
                 }
             },
             Err(_) => {
-                eprintln!("An error occurred while watching the filesystem! The launcher might be out-of-sync with your files!");
+                log::error!("An error occurred while watching the filesystem! The launcher might be out-of-sync with your files!");
                 self.send.send_error("An error occurred while watching the filesystem! The launcher might be out-of-sync with your files!");
             },
         }

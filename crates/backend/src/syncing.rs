@@ -67,7 +67,7 @@ pub fn apply_to_instance(sync_targets: EnumSet<SyncTarget>, directories: &Launch
                     }
                 },
                 _ => {
-                    eprintln!("Don't know how to sync {target:?}")
+                    log::error!("Don't know how to sync {target:?}")
                 }
             }
         }

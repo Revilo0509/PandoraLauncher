@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
 pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str]) {
+    log::info!("Creating linux shortcut at {:?}", path);
+
     if !has_extension(&path, "desktop") {
         path.add_extension("desktop");
     }
@@ -11,7 +13,7 @@ pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str])
     let Some(bin) = bin.to_str() else {
         return;
     };
-    let exec = shell_words::join(std::iter::once(bin).chain(args));
+    let exec = shell_words::join(std::iter::once(bin).chain(args.iter().map(|s| *s)));
 
     _ = std::fs::write(&path, format!(r#"[Desktop Entry]
 Type=Application
@@ -27,6 +29,8 @@ Categories=Games;Minecraft;Launcher;
 
 #[cfg(target_os = "windows")]
 pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str]) {
+    log::info!("Creating windows shortcut at {:?}", path);
+
     if !has_extension(&path, "lnk") {
         path.add_extension("lnk");
     }
@@ -42,6 +46,8 @@ pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str])
 
 #[cfg(target_os = "macos")]
 pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str]) {
+    log::info!("Creating macos shortcut at {:?}", path);
+
     if !has_extension(&path, "app") {
         path.add_extension("app");
     }
@@ -82,7 +88,7 @@ pub fn create_shortcut(mut path: PathBuf, name: &str, bin: &Path, args: &[&str])
     let Some(bin) = bin.to_str() else {
         return;
     };
-    let exec = shell_words::join(std::iter::once(bin).chain(args));
+    let exec = shell_words::join(std::iter::once(bin).chain(args.iter().map(|s| *s)));
 
     let script_path = path.join("run.sh");
     _ = std::fs::write(&script_path, format!(r#"#!/bin/sh

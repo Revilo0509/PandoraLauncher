@@ -2,6 +2,39 @@ use std::sync::{Arc, RwLock};
 
 use bridge::handle::FrontendHandle;
 
+pub fn install_logging_hook() {
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unknown>");
+
+        let payload = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+
+        let backtrace = backtrace::Backtrace::new();
+
+        let message = match info.location() {
+            Some(location) => {
+                format!(
+                    "Thread {} panicked at {}:{}:{}\n{}\n{:?}",
+                    thread_name,
+                    location.file(),
+                    location.line(),
+                    location.column(),
+                    payload,
+                    PrettyBacktrace(backtrace)
+                )
+            },
+            None => format!("Thread {} panicked\n{}\n{:?}", thread_name, payload, PrettyBacktrace(backtrace)),
+        };
+        log::error!("{}", message);
+    }));
+}
+
 pub fn install_hook(panic_message: Arc<RwLock<Option<String>>>, frontend_handle: FrontendHandle) {
     let old_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -31,7 +64,7 @@ pub fn install_hook(panic_message: Arc<RwLock<Option<String>>>, frontend_handle:
                 None => format!("Backend panicked\n{}\n{:?}", payload, PrettyBacktrace(backtrace)),
             };
 
-            eprintln!("{}", message);
+            log::error!("{}", message);
             *panic_message.write().unwrap() = Some(message);
             frontend_handle.send(bridge::message::MessageToFrontend::Refresh);
         } else {

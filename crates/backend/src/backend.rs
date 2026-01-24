@@ -103,6 +103,8 @@ pub fn start(launcher_dir: PathBuf, send: FrontendHandle, self_handle: BackendHa
         head_cache: Default::default(),
     };
 
+    log::debug!("Doing initial backend load");
+
     runtime.block_on(async {
         state.send.send(state.account_info.write().get().create_update_message());
         state.load_all_instances().await;
@@ -170,6 +172,8 @@ pub enum HeadCacheEntry {
 
 impl BackendState {
     async fn start(self, recv: BackendReceiver, watcher_rx: Receiver<notify_debouncer_full::DebounceEventResult>) {
+        log::info!("Starting backend");
+
         // Pre-fetch version manifest
         self.meta.load(&MinecraftVersionManifestMetadataItem).await;
 
@@ -177,12 +181,14 @@ impl BackendState {
     }
 
     pub async fn load_all_instances(&mut self) {
+        log::info!("Loading all instances");
+
         let mut paths_with_time = Vec::new();
 
         self.file_watching.write().watch_filesystem(self.directories.instances_dir.clone(), WatchTarget::InstancesDir);
         for entry in std::fs::read_dir(&self.directories.instances_dir).unwrap() {
             let Ok(entry) = entry else {
-                eprintln!("Error reading directory in instances folder: {:?}", entry.unwrap_err());
+                log::warn!("Error reading directory in instances folder: {:?}", entry.unwrap_err());
                 continue;
             };
 
@@ -224,6 +230,8 @@ impl BackendState {
     }
 
     pub fn remove_instance(&mut self, id: InstanceID) {
+        log::info!("Removing instance {id:?}");
+
         let mut instance_state = self.instance_state.write();
 
         if let Some(instance) = instance_state.instances.remove(id) {
@@ -250,7 +258,7 @@ impl BackendState {
                 if show_errors {
                     let error = instance.unwrap_err();
                     self.send.send_error(format!("Unable to load instance from {:?}:\n{}", &path, &error));
-                    eprintln!("Error loading instance: {:?}", &error);
+                    log::error!("Error loading instance: {:?}", &error);
                 }
 
                 return false;
@@ -317,7 +325,7 @@ impl BackendState {
                     if let Some(message) = message {
                         self.handle_message(message).await;
                     } else {
-                        eprintln!("Backend receiver has shut down");
+                        log::info!("Backend receiver has shut down");
                         break;
                     }
                 },
@@ -325,7 +333,7 @@ impl BackendState {
                     if let Some(instance_change) = instance_change {
                         self.handle_filesystem(instance_change).await;
                     } else {
-                        eprintln!("Backend filesystem has shut down");
+                        log::info!("Backend filesystem has shut down");
                         break;
                     }
                 },
@@ -344,6 +352,7 @@ impl BackendState {
             if let Some(child) = &mut instance.child
                 && !matches!(child.try_wait(), Ok(None))
             {
+                log::debug!("Child process is no longer alive");
                 instance.child = None;
                 self.send.send(instance.create_modify_message());
             }
@@ -356,6 +365,8 @@ impl BackendState {
         login_tracker: &ProgressTracker,
         modal_action: &ModalAction,
     ) -> Result<(MinecraftProfileResponse, MinecraftAccessToken), LoginError> {
+        log::info!("Starting login");
+
         let mut authenticator = Authenticator::new(self.http_client.clone());
 
         login_tracker.set_total(AUTH_STAGE_COUNT as usize + 1);
@@ -378,13 +389,13 @@ impl BackendState {
                 if stage > last_stage {
                     allow_backwards = false;
                 } else if stage < last_stage && !allow_backwards {
-                    eprintln!(
+                    log::error!(
                         "Stage {:?} went backwards from {:?} when going backwards isn't allowed. This is most likely a bug with the auth flow!",
                         stage, last_stage
                     );
                     return Err(LoginError::LoginStageErrorBackwards);
                 } else if stage == last_stage {
-                    eprintln!("Stage {:?} didn't change. This is most likely a bug with the auth flow!", stage);
+                    log::error!("Stage {:?} didn't change. This is most likely a bug with the auth flow!", stage);
                     return Err(LoginError::LoginStageErrorDidntChange);
                 }
             }
@@ -392,6 +403,8 @@ impl BackendState {
 
             match credentials.stage() {
                 auth::credentials::AuthStageWithData::Initial => {
+                    log::debug!("Auth Flow: Initial");
+
                     let pending = authenticator.create_authorization();
                     modal_action.set_visit_url(ModalActionVisitUrl {
                         message: "Login with Microsoft".into(),
@@ -400,6 +413,7 @@ impl BackendState {
                     });
                     self.send.send(MessageToFrontend::Refresh);
 
+                    log::debug!("Starting serve_redirect server");
                     let finished = tokio::select! {
                         finished = serve_redirect::start_server(pending) => finished?,
                         _ = modal_action.request_cancel.cancelled() => {
@@ -407,15 +421,20 @@ impl BackendState {
                         }
                     };
 
+                    log::debug!("serve_redirect handled successfully");
+
                     modal_action.unset_visit_url();
                     self.send.send(MessageToFrontend::Refresh);
 
+                    log::debug!("Finishing authorization, getting msa tokens");
                     let msa_tokens = authenticator.finish_authorization(finished).await?;
 
                     credentials.msa_access = Some(msa_tokens.access);
                     credentials.msa_refresh = msa_tokens.refresh;
                 },
                 auth::credentials::AuthStageWithData::MsaRefresh(refresh) => {
+                    log::debug!("Auth Flow: MsaRefresh");
+
                     match authenticator.refresh_msa(&refresh).await {
                         Ok(Some(msa_tokens)) => {
                             credentials.msa_access = Some(msa_tokens.access);
@@ -432,13 +451,15 @@ impl BackendState {
                                 return Err(error.into());
                             }
                             if !matches!(error, MsaAuthorizationError::InvalidGrant) {
-                                eprintln!("Error using msa refresh to get msa access: {:?}", error);
+                                log::warn!("Error using msa refresh to get msa access: {:?}", error);
                             }
                             credentials.msa_refresh = None;
                         },
                     }
                 },
                 auth::credentials::AuthStageWithData::MsaAccess(access) => {
+                    log::debug!("Auth Flow: MsaAccess");
+
                     match authenticator.authenticate_xbox(&access).await {
                         Ok(xbl) => {
                             credentials.xbl = Some(xbl);
@@ -448,13 +469,15 @@ impl BackendState {
                                 return Err(error.into());
                             }
                             if !matches!(error, XboxAuthenticateError::NonOkHttpStatus(StatusCode::UNAUTHORIZED)) {
-                                eprintln!("Error using msa access to get xbl token: {:?}", error);
+                                log::warn!("Error using msa access to get xbl token: {:?}", error);
                             }
                             credentials.msa_access = None;
                         },
                     }
                 },
                 auth::credentials::AuthStageWithData::XboxLive(xbl) => {
+                    log::debug!("Auth Flow: XboxLive");
+
                     match authenticator.obtain_xsts(&xbl).await {
                         Ok(xsts) => {
                             credentials.xsts = Some(xsts);
@@ -464,13 +487,15 @@ impl BackendState {
                                 return Err(error.into());
                             }
                             if !matches!(error, XboxAuthenticateError::NonOkHttpStatus(StatusCode::UNAUTHORIZED)) {
-                                eprintln!("Error using xbl to get xsts: {:?}", error);
+                                log::warn!("Error using xbl to get xsts: {:?}", error);
                             }
                             credentials.xbl = None;
                         },
                     }
                 },
                 auth::credentials::AuthStageWithData::XboxSecure { xsts, userhash } => {
+                    log::debug!("Auth Flow: XboxSecure");
+
                     match authenticator.authenticate_minecraft(&xsts, &userhash).await {
                         Ok(token) => {
                             credentials.access_token = Some(token);
@@ -480,13 +505,15 @@ impl BackendState {
                                 return Err(error.into());
                             }
                             if !matches!(error, XboxAuthenticateError::NonOkHttpStatus(StatusCode::UNAUTHORIZED)) {
-                                eprintln!("Error using xsts to get minecraft access token: {:?}", error);
+                                log::warn!("Error using xsts to get minecraft access token: {:?}", error);
                             }
                             credentials.xsts = None;
                         },
                     }
                 },
                 auth::credentials::AuthStageWithData::AccessToken(access_token) => {
+                    log::debug!("Auth Flow: AccessToken");
+
                     match authenticator.get_minecraft_profile(&access_token).await {
                         Ok(profile) => {
                             login_tracker.set_count(AUTH_STAGE_COUNT as usize + 1);
@@ -499,7 +526,7 @@ impl BackendState {
                                 return Err(error.into());
                             }
                             if !matches!(error, XboxAuthenticateError::NonOkHttpStatus(StatusCode::UNAUTHORIZED)) {
-                                eprintln!("Error using access token to get profile: {:?}", error);
+                                log::warn!("Error using access token to get profile: {:?}", error);
                             }
                             credentials.access_token = None;
                         },
@@ -510,6 +537,8 @@ impl BackendState {
     }
 
     pub fn update_profile_head(&self, profile: &MinecraftProfileResponse) {
+        log::info!("Updating profile head for {}", profile.id);
+
         let Some(skin) = profile.skins.iter().find(|skin| skin.state == SkinState::Active).cloned() else {
             return;
         };
@@ -543,15 +572,19 @@ impl BackendState {
         let http_client = self.http_client.clone();
 
         tokio::task::spawn(async move {
+            log::info!("Downloading skin from {}", skin_url);
             let Ok(response) = http_client.get(&*skin_url).send().await else {
+                log::warn!("Http error while requesting skin from {}", skin_url);
                 head_cache.write().insert(skin_url.clone(), HeadCacheEntry::Failed);
                 return;
             };
             let Ok(bytes) = response.bytes().await else {
+                log::warn!("Http error while downloading skin bytes from {}", skin_url);
                 head_cache.write().insert(skin_url.clone(), HeadCacheEntry::Failed);
                 return;
             };
             let Ok(mut image) = image::load_from_memory(&bytes) else {
+                log::warn!("Image load error for skin from {}", skin_url);
                 head_cache.write().insert(skin_url.clone(), HeadCacheEntry::Failed);
                 return;
             };
@@ -580,6 +613,8 @@ impl BackendState {
                     Vec::new()
                 }
             };
+
+            log::info!("Successfully downloaded skin from {}", skin_url);
 
             if accounts.is_empty() {
                 return;
@@ -647,6 +682,7 @@ impl BackendState {
                 };
                 let file_name = entry.file_name();
                 if file_name.to_string_lossy().starts_with(".pandora.") {
+                    log::trace!("Removing temporary mod file {:?}", &file_name);
                     _ = std::fs::remove_file(entry.path());
                 }
             }
@@ -924,6 +960,7 @@ impl BackendState {
     }
 
     pub async fn create_instance(&self, name: &str, version: &str, loader: Loader) -> Option<PathBuf> {
+        log::info!("Creating instance {name}");
         if loader == Loader::Unknown {
             self.send.send_warning(format!("Unable to create instance, unknown loader"));
             return None;
@@ -1025,15 +1062,19 @@ impl BackendState {
 impl BackendStateFileWatching {
     pub fn watch_filesystem(&mut self, path: Arc<Path>, target: WatchTarget) {
         let Ok(canonical) = path.canonicalize() else {
+            log::error!("Unable to watch {:?} because it could not be canonicalized", path);
             return;
         };
         let canonical: Arc<Path> = if canonical == &*path {
+            log::debug!("Watching {:?} as {:?}", path, target);
             path.clone()
         } else {
+            log::debug!("Watching {:?} (real path {:?}) as {:?}", path, canonical, target);
             canonical.into()
         };
 
-        if self.watcher.watch(&path, notify::RecursiveMode::NonRecursive).is_err() {
+        if let Err(err) = self.watcher.watch(&path, notify::RecursiveMode::NonRecursive) {
+            log::error!("Unable to watch filesystem: {:?}", err);
             return;
         }
         self.watching.insert(path.clone(), target);

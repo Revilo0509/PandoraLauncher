@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::fmt::Write;
+use std::time::SystemTime;
 
 use bridge::message::MessageToFrontend;
 use bridge::modal_action::{ModalAction, ProgressTrackerFinishType};
@@ -30,6 +31,21 @@ fn main() {
     let launcher_dir = data_dir.join("PandoraLauncher");
 
     _ = std::env::set_current_dir(&launcher_dir);
+
+    let log_path = launcher_dir.join("launcher.log");
+    if log_path.exists() {
+        let old_log_path = launcher_dir.join("launcher.log.old");
+        _ = std::fs::rename(log_path, old_log_path);
+    }
+
+    if let Err(error) = setup_logging(log::LevelFilter::Debug) {
+        eprintln!("Unable to enable logging: {error:?}");
+    }
+
+    log::debug!("DEBUG logging enabled");
+    log::trace!("TRACE logging enabled");
+
+    panic::install_logging_hook();
 
     if let Some(run_instance) = args.run_instance {
         let (backend_recv, backend_handle, mut frontend_recv, frontend_handle) = bridge::handle::create_pair();
@@ -61,7 +77,7 @@ fn main() {
 }
 
 fn show_error(error: String) {
-    eprintln!("{}", error);
+    log::error!("{}", error);
     _ = DialogBuilder::message()
         .set_level(native_dialog::MessageLevel::Error)
         .set_title("An error occurred")
@@ -142,10 +158,6 @@ fn run_modal_action(modal_action: ModalAction) {
 }
 
 fn run_gui(launcher_dir: PathBuf) {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-
     let panic_message = Arc::new(RwLock::new(None));
     let deadlock_message = Arc::new(RwLock::new(None));
 
@@ -175,7 +187,7 @@ fn run_gui(launcher_dir: PathBuf) {
                     }
                 }
 
-                eprintln!("{}", message);
+                log::error!("{}", message);
                 *deadlock_message.write().unwrap() = Some(message);
                 frontend_handle.send(bridge::message::MessageToFrontend::Refresh);
                 return;
@@ -185,4 +197,46 @@ fn run_gui(launcher_dir: PathBuf) {
 
     backend::start(launcher_dir.clone(), frontend_handle, backend_handle.clone(), backend_recv);
     frontend::start(launcher_dir.clone(), panic_message, deadlock_message, backend_handle, frontend_recv);
+}
+
+fn setup_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
+    let base_config = fern::Dispatch::new()
+        .level_for("pandora_launcher", level)
+        .level_for("auth", level)
+        .level_for("backend", level)
+        .level_for("frontend", level)
+        .level_for("bridge", level)
+        .level(log::LevelFilter::Info);
+
+    // Separate file config so we can include year, month and day in file logs
+    let file_config = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .chain(fern::log_file("launcher.log")?);
+
+    let stdout_config = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .chain(std::io::stdout());
+
+    base_config
+        .chain(file_config)
+        .chain(stdout_config)
+        .apply()?;
+
+    Ok(())
 }
