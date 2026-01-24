@@ -993,6 +993,19 @@ impl BackendState {
                     config.open_game_output_when_launching = value;
                 });
             },
+            MessageToBackend::CreateInstanceShortcut { id, path } => {
+                if let Some(instance) = self.instance_state.write().instances.get_mut(id) {
+                    let Ok(current_exe) = std::env::current_exe() else {
+                        return;
+                    };
+
+                    let args = &[
+                        "--run-instance",
+                        instance.name.as_str()
+                    ];
+                    crate::shortcut::create_shortcut(path, &format!("Launch {}", instance.name), &current_exe, args);
+                }
+            },
         }
     }
 
