@@ -1,6 +1,4 @@
 use std::{borrow::Cow, cmp::Ordering, path::Path, sync::Arc};
-#[cfg(target_os = "linux")]
-use std::process::Command;
 
 use bridge::{
     handle::BackendHandle, instance::InstanceID, message::MessageToBackend, meta::MetadataRequest
@@ -431,8 +429,9 @@ impl InstanceSettingsSubpage {
 
     #[cfg(target_os = "linux")]
     fn is_command_available(command: &str) -> bool {
-        Command::new("which")
-            .arg(command)
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {command}"))
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
