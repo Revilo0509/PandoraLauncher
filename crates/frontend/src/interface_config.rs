@@ -35,8 +35,6 @@ pub struct InterfaceConfig {
     pub hide_main_window_on_launch: bool,
 }
 
-
-
 impl InterfaceConfig {
     pub fn init(cx: &mut App, path: Arc<Path>) {
         cx.set_global(InterfaceConfigHolder {

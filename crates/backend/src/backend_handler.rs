@@ -211,7 +211,7 @@ impl BackendState {
                 let is_err = result.is_err();
                 match result {
                     Ok(mut child) => {
-                        if self.config.write().get().open_game_output_when_launching {
+                        if !self.config.write().get().dont_open_game_output_when_launching {
                             if let Some(stdout) = child.stdout.take() {
                                 log_reader::start_game_output(stdout, child.stderr.take(), self.send.clone());
                             }
@@ -1004,7 +1004,7 @@ impl BackendState {
             },
             MessageToBackend::SetOpenGameOutputAfterLaunching { value } => {
                 self.config.write().modify(|config| {
-                    config.open_game_output_when_launching = value;
+                    config.dont_open_game_output_when_launching = !value;
                 });
             },
             MessageToBackend::CreateInstanceShortcut { id, path } => {
