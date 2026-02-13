@@ -302,7 +302,8 @@ impl BackendState {
                         }
 
                         if let Some(minecraft_version) = minecraft_version {
-                            instance_dir = self.create_instance_sanitized(&name, &minecraft_version, content.loader_hint).await
+                            // todo: use icon of mod/modpack/etc. for icon of instance
+                            instance_dir = self.create_instance_sanitized(&name, &minecraft_version, content.loader_hint, None).await
                                 .map(|v| v.join(".minecraft").into());
                         }
                     },

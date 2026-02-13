@@ -11,8 +11,9 @@ use auth::{
 };
 use base64::Engine;
 use bridge::{
-    handle::{BackendHandle, BackendReceiver, FrontendHandle}, install::{ContentDownload, ContentInstall, ContentInstallFile, ContentInstallPath}, instance::{InstanceID, InstanceContentSummary, InstanceServerSummary, InstanceWorldSummary, ContentType}, message::MessageToFrontend, modal_action::{ModalAction, ModalActionVisitUrl, ProgressTracker, ProgressTrackerFinishType}, safe_path::SafePath
+    handle::{BackendHandle, BackendReceiver, FrontendHandle}, install::{ContentDownload, ContentInstall, ContentInstallFile, ContentInstallPath}, instance::{ContentType, InstanceContentSummary, InstanceID, InstanceServerSummary, InstanceWorldSummary}, message::{EmbeddedOrRaw, MessageToFrontend}, modal_action::{ModalAction, ModalActionVisitUrl, ProgressTracker, ProgressTrackerFinishType}, safe_path::SafePath
 };
+use image::ImageFormat;
 use indexmap::IndexSet;
 use parking_lot::RwLock;
 use reqwest::{StatusCode, redirect::Policy};
@@ -306,6 +307,7 @@ impl BackendState {
             let message = MessageToFrontend::InstanceAdded {
                 id: instance.id,
                 name: instance.name,
+                icon: instance.icon.clone(),
                 dot_minecraft_folder: instance.dot_minecraft_path.clone(),
                 configuration: instance.configuration.get().clone(),
                 worlds_state: Arc::clone(&instance.worlds_state),
@@ -1010,7 +1012,7 @@ impl BackendState {
         result.map(|(worlds, _)| worlds)
     }
 
-    pub async fn create_instance_sanitized(&self, name: &str, version: &str, loader: Loader) -> Option<PathBuf> {
+    pub async fn create_instance_sanitized(&self, name: &str, version: &str, loader: Loader, icon: Option<EmbeddedOrRaw>) -> Option<PathBuf> {
         let mut name = sanitize_filename::sanitize_with_options(name, sanitize_filename::Options { windows: true, ..Default::default() });
 
         if self.instance_state.read().instances.iter().any(|i| i.name == name) {
@@ -1024,10 +1026,10 @@ impl BackendState {
             }
         }
 
-        return self.create_instance(&name, version, loader).await;
+        return self.create_instance(&name, version, loader, icon).await;
     }
 
-    pub async fn create_instance(&self, name: &str, version: &str, loader: Loader) -> Option<PathBuf> {
+    pub async fn create_instance(&self, name: &str, version: &str, loader: Loader, icon: Option<EmbeddedOrRaw>) -> Option<PathBuf> {
         log::info!("Creating instance {name}");
         if loader == Loader::Unknown {
             self.send.send_warning(format!("Unable to create instance, unknown loader"));
@@ -1052,6 +1054,12 @@ impl BackendState {
 
         let _ = tokio::fs::create_dir_all(&instance_dir).await;
 
+        let instance_fallback_icon = if let Some(EmbeddedOrRaw::Embedded(e)) = &icon {
+            Some(Ustr::from(&**e))
+        } else {
+            None
+        };
+
         let instance_info = InstanceConfiguration {
             minecraft_version: Ustr::from(version),
             loader,
@@ -1061,10 +1069,24 @@ impl BackendState {
             jvm_binary: None,
             linux_wrapper: None,
             system_libraries: None,
+            instance_fallback_icon,
         };
 
         let info_path = instance_dir.join("info_v1.json");
         crate::write_safe(&info_path, serde_json::to_string(&instance_info).unwrap().as_bytes()).unwrap();
+
+        if let Some(EmbeddedOrRaw::Raw(image_bytes)) = icon {
+            if let Ok(format) = image::guess_format(&*image_bytes) {
+                if format == ImageFormat::Png {
+                    let icon_path = instance_dir.join("icon.png");
+                    crate::write_safe(&icon_path, &*image_bytes).unwrap();
+                } else {
+                    self.send.send_error("Unable to apply icon: only pngs are supported");
+                }
+            } else {
+                self.send.send_error("Unable to apply icon: unknown format");
+            }
+        }
 
         Some(instance_dir.clone())
     }

@@ -34,6 +34,10 @@ fn skip_if_default<T: Default + PartialEq>(value: &T) -> bool {
     value == &T::default()
 }
 
+fn skip_if_none<T>(value: &Option<T>) -> bool {
+    value.is_none()
+}
+
 fn default_true() -> bool {
     true
 }

@@ -69,8 +69,8 @@ impl BackendState {
             MessageToBackend::RequestLoadResourcePacks { id } => {
                 tokio::task::spawn(self.clone().load_instance_content(id, ContentFolder::ResourcePacks));
             },
-            MessageToBackend::CreateInstance { name, version, loader } => {
-                self.create_instance(&name, &version, loader).await;
+            MessageToBackend::CreateInstance { name, version, loader, icon } => {
+                self.create_instance(&name, &version, loader, icon).await;
             },
             MessageToBackend::DeleteInstance { id } => {
                 if let Some(instance) = self.instance_state.write().instances.get_mut(id) {

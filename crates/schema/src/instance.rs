@@ -9,7 +9,7 @@ use crate::loader::Loader;
 pub struct InstanceConfiguration {
     pub minecraft_version: Ustr,
     pub loader: Loader,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::skip_if_none")]
     pub preferred_loader_version: Option<Ustr>,
     #[serde(default, deserialize_with = "crate::try_deserialize", skip_serializing_if = "is_default_memory_configuration")]
     pub memory: Option<InstanceMemoryConfiguration>,
@@ -21,6 +21,8 @@ pub struct InstanceConfiguration {
     pub linux_wrapper: Option<InstanceLinuxWrapperConfiguration>,
     #[serde(default, deserialize_with = "crate::try_deserialize", skip_serializing_if = "is_default_system_libraries_configuration")]
     pub system_libraries: Option<InstanceSystemLibrariesConfiguration>,
+    #[serde(default, deserialize_with = "crate::try_deserialize", skip_serializing_if = "crate::skip_if_none")]
+    pub instance_fallback_icon: Option<Ustr>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]

@@ -29,6 +29,7 @@ pub struct Instance {
     pub server_dat_path: Arc<Path>,
     pub saves_path: Arc<Path>,
     pub name: Ustr,
+    pub icon: Option<Arc<[u8]>>,
     pub configuration: Persistent<InstanceConfiguration>,
 
     pub child: Option<Child>,
@@ -652,6 +653,9 @@ impl Instance {
             ContentFolderState::new(content_type.path().to_path(&dot_minecraft_path).into())
         });
 
+        let icon_path = path.join("icon.png");
+        let icon = std::fs::read(icon_path).ok().map(|v| v.into());
+
         Ok(Self {
             id: InstanceID::dangling(),
             root_path: path.into(),
@@ -659,6 +663,7 @@ impl Instance {
             server_dat_path: server_dat_path.into(),
             saves_path: saves_path.into(),
             name: path.file_name().unwrap().to_string_lossy().into_owned().into(),
+            icon,
             configuration: instance_info,
 
             child: None,
@@ -741,6 +746,7 @@ impl Instance {
         MessageToFrontend::InstanceModified {
             id: self.id,
             name: self.name,
+            icon: self.icon.clone(),
             dot_minecraft_folder: self.dot_minecraft_path.clone(),
             configuration: self.configuration.get().clone(),
             status,

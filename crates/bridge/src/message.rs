@@ -37,6 +37,7 @@ pub enum MessageToBackend {
         name: Ustr,
         version: Ustr,
         loader: Loader,
+        icon: Option<EmbeddedOrRaw>,
     },
     DeleteInstance {
         id: InstanceID,
@@ -185,6 +186,7 @@ pub enum MessageToFrontend {
     InstanceAdded {
         id: InstanceID,
         name: Ustr,
+        icon: Option<Arc<[u8]>>,
         dot_minecraft_folder: Arc<Path>,
         configuration: InstanceConfiguration,
         worlds_state: Arc<AtomicBridgeDataLoadState>,
@@ -198,6 +200,7 @@ pub enum MessageToFrontend {
     InstanceModified {
         id: InstanceID,
         name: Ustr,
+        icon: Option<Arc<[u8]>>,
         dot_minecraft_folder: Arc<Path>,
         configuration: InstanceConfiguration,
         status: InstanceStatus,
@@ -301,4 +304,10 @@ pub enum QuickPlayLaunch {
     Singleplayer(OsString),
     Multiplayer(OsString),
     Realms(OsString),
+}
+
+#[derive(Debug, Clone)]
+pub enum EmbeddedOrRaw {
+    Embedded(Arc<str>),
+    Raw(Arc<[u8]>),
 }
