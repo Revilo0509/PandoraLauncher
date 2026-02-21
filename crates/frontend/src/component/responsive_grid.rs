@@ -101,7 +101,7 @@ impl Element for ResponsiveGrid {
                             AvailableSpace::MinContent | AvailableSpace::MaxContent => min_element_width,
                         });
 
-                        let (width, horizontal_count) = if base_width <= min_element_width {
+                        let (width, horizontal_count) = if base_width <= min_element_width || children_count == 0 {
                             (base_width, 1)
                         } else {
                             let bounds_width_plus_padding = base_width.to_f64() + gap_width.to_f64();
