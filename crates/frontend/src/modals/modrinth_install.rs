@@ -7,7 +7,7 @@ use gpui_component::{
     button::{Button, ButtonVariants}, checkbox::Checkbox, dialog::Dialog, h_flex, notification::NotificationType, select::{SearchableVec, Select, SelectItem, SelectState}, spinner::Spinner, v_flex, IndexPath, WindowExt
 };
 use relative_path::RelativePath;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schema::{
     content::ContentSource, loader::Loader, modrinth::{
         ModrinthDependency, ModrinthDependencyType, ModrinthLoader, ModrinthProjectType, ModrinthProjectVersion, ModrinthProjectVersionsRequest, ModrinthProjectVersionsResult, ModrinthVersionStatus, ModrinthVersionType
@@ -576,13 +576,31 @@ impl InstallDialog {
 
         let required_dependencies = selected_mod_version.as_ref().and_then(|version| {
             version.dependencies.as_ref().map(|deps| {
-                deps
+                let mut required = deps
                     .iter()
                     .filter(|dep| {
                         dep.project_id.is_some() && dep.dependency_type == ModrinthDependencyType::Required
                     })
                     .cloned()
-                    .collect::<Arc<[_]>>()
+                    .collect::<Vec<_>>();
+
+                // Ignore projects that are already installed
+                if !required.is_empty()
+                    && let Some(InstallTarget::Instance(instance_id)) = self.target
+                    && let Some(instance) = self.data.instances.read(cx).entries.get(&instance_id)
+                {
+                    let mut existing_projects = FxHashSet::default();
+                    let existing_mods = instance.read(cx).mods.read(cx);
+                    for summary in existing_mods.iter() {
+                        let ContentSource::ModrinthProject { project } = &summary.content_source else {
+                            continue;
+                        };
+                        existing_projects.insert(project.clone());
+                    }
+                    required.retain(|dep| !existing_projects.contains(dep.project_id.as_ref().unwrap()));
+                }
+
+                required
             })
         }).unwrap_or_default();
 

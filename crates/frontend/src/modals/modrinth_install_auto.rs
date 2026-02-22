@@ -1,16 +1,15 @@
-use std::{cmp::Ordering, sync::Arc};
+use std::sync::Arc;
 
 use bridge::{install::{ContentDownload, ContentInstall, ContentInstallFile, InstallTarget}, instance::InstanceID, message::MessageToBackend, meta::MetadataRequest, modal_action::ModalAction, safe_path::SafePath};
-use enumset::EnumSet;
 use gpui::{prelude::*, *};
 use gpui_component::{
-    button::{Button, ButtonVariants}, checkbox::Checkbox, dialog::Dialog, h_flex, notification::{Notification, NotificationType}, select::{SearchableVec, Select, SelectItem, SelectState}, spinner::Spinner, v_flex, IndexPath, WindowExt
+    h_flex, notification::Notification, spinner::Spinner, WindowExt
 };
 use relative_path::RelativePath;
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use schema::{
-    content::ContentSource, loader::Loader, modrinth::{
-        ModrinthDependency, ModrinthDependencyType, ModrinthLoader, ModrinthProjectType, ModrinthProjectVersion, ModrinthProjectVersionsRequest, ModrinthProjectVersionsResult, ModrinthVersionStatus, ModrinthVersionType
+    content::ContentSource, modrinth::{
+        ModrinthDependencyType, ModrinthProjectType, ModrinthProjectVersionsRequest, ModrinthProjectVersionsResult, ModrinthVersionType
     }
 };
 use uuid::Uuid;
@@ -95,7 +94,10 @@ fn handle_project_versions(
             let Some(instance) = data.instances.read(cx).entries.get(&install_for) else {
                 return true;
             };
-            let configuration = instance.read(cx).configuration.clone();
+            let (configuration, instance_mods) = {
+                let instance = instance.read(cx);
+                (instance.configuration.clone(), instance.mods.clone())
+            };
             let modrinth_loader = configuration.loader.as_modrinth_loader();
             let is_mod = project_type == ModrinthProjectType::Mod || project_type == ModrinthProjectType::Modpack;
             let matching_versions = project_versions.0.iter().filter(|version| {
@@ -174,13 +176,28 @@ fn handle_project_versions(
             let mut files = Vec::new();
 
             let required_dependencies = version.dependencies.as_ref().map(|deps| {
-                deps
+                let mut required = deps
                     .iter()
                     .filter(|dep| {
                         dep.project_id.is_some() && dep.dependency_type == ModrinthDependencyType::Required
                     })
                     .cloned()
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+
+                // Ignore projects that are already installed
+                if !required.is_empty() {
+                    let mut existing_projects = FxHashSet::default();
+                    let existing_mods = instance_mods.read(cx);
+                    for summary in existing_mods.iter() {
+                        let ContentSource::ModrinthProject { project } = &summary.content_source else {
+                            continue;
+                        };
+                        existing_projects.insert(project.clone());
+                    }
+                    required.retain(|dep| !existing_projects.contains(dep.project_id.as_ref().unwrap()));
+                }
+
+                required
             });
 
             if let Some(required_dependencies) = required_dependencies {
