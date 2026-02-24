@@ -712,19 +712,6 @@ impl Render for InstanceSettingsSubpage {
                 )
             ).child(v_flex()
                 .gap_1()
-                .child(Checkbox::new("wrapper_command").label(ts!("instance.wrapper_command")).checked(wrapper_command_enabled).on_click(cx.listener(|page, value, _, cx| {
-                    if page.wrapper_command_enabled != *value {
-                        page.wrapper_command_enabled = *value;
-                        page.backend_handle.send(MessageToBackend::SetInstanceWrapperCommand {
-                            id: page.instance_id,
-                            wrapper_command: page.get_wrapper_command_configuration(cx)
-                        });
-                        cx.notify();
-                    }
-                })))
-                .child(Input::new(&self.wrapper_command_input_state).disabled(!wrapper_command_enabled))
-            ).child(v_flex()
-                .gap_1()
                 .child(Checkbox::new("jvm_flags").label(ts!("instance.jvm_flags")).checked(jvm_flags_enabled).on_click(cx.listener(|page, value, _, cx| {
                     if page.jvm_flags_enabled != *value {
                         page.jvm_flags_enabled = *value;
@@ -780,8 +767,7 @@ impl Render for InstanceSettingsSubpage {
                         });
                     }, window, cx);
                 })))
-            )
-            .child(v_flex()
+            ).child(v_flex()
                 .gap_1()
                 .child(Checkbox::new("system_openal").label(ts!("instance.openal_lib")).checked(self.override_openal_enabled).on_click(cx.listener(|page, value, _, cx| {
                     if page.override_openal_enabled != *value {
@@ -803,6 +789,19 @@ impl Render for InstanceSettingsSubpage {
                         });
                     }, window, cx);
                 })))
+            ).child(v_flex()
+                .gap_1()
+                .child(Checkbox::new("wrapper_command").label(ts!("instance.wrapper_command")).checked(wrapper_command_enabled).on_click(cx.listener(|page, value, _, cx| {
+                    if page.wrapper_command_enabled != *value {
+                        page.wrapper_command_enabled = *value;
+                        page.backend_handle.send(MessageToBackend::SetInstanceWrapperCommand {
+                            id: page.instance_id,
+                            wrapper_command: page.get_wrapper_command_configuration(cx)
+                        });
+                        cx.notify();
+                    }
+                })))
+                .child(Input::new(&self.wrapper_command_input_state).disabled(!wrapper_command_enabled))
             );
 
         #[cfg(target_os = "linux")]
